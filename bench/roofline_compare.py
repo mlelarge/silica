@@ -77,6 +77,7 @@ def main():
     ap.add_argument("--warmup", type=int, default=2)
     ap.add_argument("--runs", type=int, default=8)
     ap.add_argument("--with-mlx-lm", action="store_true", help="also measure mlx-lm (parity check)")
+    ap.add_argument("--spec-bandwidth", type=float, default=400.0)
     args = ap.parse_args()
 
     nbytes = 1_500_000_000
@@ -93,6 +94,17 @@ def main():
         except ImportError:
             from mlx_lm.cache import make_prompt_cache
 
+    # A reading is reliable only if the bracketing ceiling stayed near the quiet
+    # value (bus not heavily contended) and the ratio is physically possible.
+    ceiling_floor = 0.80 * 0.90 * args.spec_bandwidth
+
+    def flag(pct, ceil):
+        if pct > 98:
+            return "  UNRELIABLE (>98%: ceiling contaminated)"
+        if ceil < ceiling_floor:
+            return f"  UNRELIABLE (ceiling {ceil:.0f}<{ceiling_floor:.0f}: bus contended)"
+        return ""
+
     print(f"model: {args.model}   (% usable = median of bracketed achieved/ceiling)\n")
     print(f"{'engine':<9}{'config':<7}{'tok/s':>9}{'ceiling GB/s':>14}{'% usable':>11}")
     print("-" * 50)
@@ -101,7 +113,7 @@ def main():
         smodel, cfg = load_model(path, quant=quant, dtype=mx.bfloat16)
         ts, pct, ceil = measure(smodel, cfg, bits, lambda m=smodel: make_cache(len(m.layers)),
                                 prompt_ids, args.tokens, buf, nbytes, args.warmup, args.runs)
-        print(f"{'silica':<9}{name:<7}{ts:>9.1f}{ceil:>14.0f}{pct:>10.0f}%")
+        print(f"{'silica':<9}{name:<7}{ts:>9.1f}{ceil:>14.0f}{pct:>10.0f}%{flag(pct, ceil)}")
         del smodel
 
         if args.with_mlx_lm:
@@ -111,7 +123,7 @@ def main():
                 mx.eval(rmodel.parameters())
             ts2, pct2, _ = measure(rmodel, cfg, bits, lambda m=rmodel: make_prompt_cache(m),
                                    prompt_ids, args.tokens, buf, nbytes, args.warmup, args.runs)
-            print(f"{'mlx-lm':<9}{name:<7}{ts2:>9.1f}{'':>14}{pct2:>10.0f}%")
+            print(f"{'mlx-lm':<9}{name:<7}{ts2:>9.1f}{'':>14}{pct2:>10.0f}%{flag(pct2, ceil)}")
             del rmodel
 
 
