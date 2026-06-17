@@ -183,13 +183,18 @@ host value) forces a sync and collapses the overlap — keep the token an
       ~1.5% at ~69% usable (4-bit, async_eval ON). Verdict **GO**: real headroom
       remains and `mx.compile` is unexplored by mlx-lm. async_eval is a big,
       already-captured lever (+50% at 4-bit).
-- [ ] `mx.async_eval` overlap in the decode loop (no per-token host sync).
-- [ ] `mx.compile` the per-step *decode* forward (fixed shape; cache via
-      `inputs=`/`outputs=`), prefill kept eager. Treat "does compile help with a
-      stateful/quantized cache?" as an explicit experiment with a documented
-      expected-null outcome (`mlx-lm` does **not** compile its loop).
-- [ ] Ablation: async_eval on/off, compile on/off → tok/s **and** bandwidth-%
-      table (a flat % with rising tok/s is expected and interpretable).
+- [x] `mx.async_eval` overlap in the decode loop (no per-token host sync) —
+      shipped in `generate.py`; measured +50% at 4-bit (M2 baseline).
+- [x] `mx.compile` the per-step *decode* forward (`silica/compiled.py`: functional
+      cache + traced array RoPE offset + `shapeless`, prefill eager). Correct
+      (compiled == eager, fp16 & 4-bit). **Expected-null confirmed:** ablation
+      (`bench/compile_ablation.py`, interleaved paired ratio) shows ~neutral
+      (fp16 ~−1%, 4-bit ~+2%) — does not clear the baseline; the residual gap is
+      small-GEMV inefficiency, not launch overhead.
+- [x] Ablation: async_eval on/off, compile on/off → tok/s table
+      (`docs/results-m2-baseline.md`). **Remaining:** larger-model (4B/8B)
+      roofline on a quiet machine to decide whether the headroom is a small-model
+      artifact (→ skip M3, go to M4 write-up) or a real gap (→ reconsider M3).
 
 ### M3 — Custom Metal kernels (gated on M2 profiling)
 - [ ] Profile to confirm the actual hot path before writing anything.

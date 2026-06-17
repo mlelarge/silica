@@ -42,9 +42,33 @@ prompt + 128 greedy decode. Reproduce: `uv run python -m bench.baseline`.
 Quantization remains the dominant throughput lever (fp16→4-bit: +98% tok/s),
 ahead of async_eval (+50%) — consistent with PLAN §1.
 
-## Next M2 step
-`mx.compile` the fixed-shape decode step (cache via `inputs=`/`outputs=`),
-prefill kept eager; ablate compile on/off and re-measure % usable. Then decide
-M3 on whether compile clears the mlx-lm baseline. Also worth a larger model
-(4B/8B) measurement — bigger GEMVs should sit closer to the ceiling, shrinking
-the apparent headroom.
+## mx.compile ablation (result)
+
+Compiled decode step (`silica/compiled.py`): functional cache + traced array
+RoPE offset + `shapeless=True`, prefill eager, greedy. Correct (compiled tokens
+== eager, fp16 & 4-bit). Measured with INTERLEAVED eager/compiled pairs so the
+per-pair ratio is robust to background load (absolute tok/s were depressed by a
+persistent ~load-3 job, but the ratio is drift-cancelled):
+
+| config | compiled/eager (2 runs) |
+|---|---|
+| fp16 | −1.3%, −1.1% → ~neutral (slightly negative) |
+| 4-bit | +1.1%, +3.3% → ~+2% (marginal) |
+
+**`mx.compile` does NOT clear the baseline** — it is within ±3% of eager, far
+short of the ~31-point gap to the 370 GB/s usable ceiling. Mechanism: with
+`async_eval` already on, per-step graph-build/dispatch is already hidden, so the
+remaining gap is **small-matrix GEMV inefficiency** (a 0.6B model's GEMVs are too
+small to saturate 370 GB/s), which compile cannot fix — it fuses launches, it
+doesn't make small GEMVs bandwidth-efficient.
+
+## Decision
+
+Per the go/no-go rule, compile clearing the baseline would justify M3; it does
+not. The headroom is therefore likely a **small-model artifact**, not recoverable
+launch overhead. **Remaining decider (needs a quiet machine):** the larger-model
+roofline — measure silica vs mlx-lm % usable on Qwen3-4B/8B. If bigger GEMVs sit
+near the ceiling (likely), the headroom shrinks and M3 custom kernels are **not**
+worth it → pivot to pedagogy + the roofline write-up (M4). If a real gap persists
+at scale, reconsider M3 fusion (dequant+GEMV traffic reduction) — cautiously, per
+the audit's risk #1.
