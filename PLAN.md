@@ -4,10 +4,10 @@
 > in the spirit of `mini-sglang` but inverted for the constraints that actually
 > bind on a Mac: memory bandwidth and quantization, not GPU scheduling.
 >
-> **Status:** M0 correctness validated on device — the parity gate passes 7/7,
-> including an independent HuggingFace fp32 oracle. M1 (selective weight
-> quantization + perplexity harness) implemented; quantized-quality numbers
-> pending an on-device ablation run.
+> **Status:** M0 + M1 validated on device (full suite 31/31). M0 parity incl. an
+> independent HuggingFace fp32 oracle; M1 = selective weight quantization,
+> perplexity harness, and a quantized KV cache. Next: M2 perf levers
+> (async_eval / mx.compile) gated on a baseline achieved-bandwidth measurement.
 
 ---
 
@@ -157,10 +157,12 @@ host value) forces a sync and collapses the overlap — keep the token an
       (`weights.py` `_selective_predicate`; `tests/test_quant.py`.)
 - [x] Add 8-bit path; expose `bits`/`group_size` as config (64 default;
       {32,64,128} as ablation knobs). (`QuantConfig`; `--ablate` sweeps 8/4-bit.)
-- [ ] Separate the two quantization stories: quantized **weights** (clear win,
-      done) vs quantized **KV** (memory-for-speed tradeoff — quantized-KV decode
-      is ~0.5× fp16; *measure*, don't assume). Quantized and rotating caches are
-      **alternatives** (they do not compose in mainline MLX). *(quantized KV: TODO)*
+- [x] Separate the two quantization stories: quantized **weights** (clear win)
+      vs quantized **KV** (`QuantizedKVCache` + a quantized-`matmul` SDPA path,
+      `quantized_kv_start` keeps the prefix fp). *Measured* on Qwen3-0.6B: 8-bit
+      KV is ~break-even on decode speed while halving KV bytes (the ~0.5× cost
+      shows at larger models / longer context). Quantized and rotating caches
+      remain **alternatives** (they do not compose in mainline MLX).
 - [x] **Quality eval harness** (`bench/eval_ppl.py`): perplexity on a fixed
       pinned corpus (`bench/data/corpus.txt`), with a `--ablate` bits sweep and a
       %-regression vs fp16; `tests/test_quant.py` enforces a bounded regression.
