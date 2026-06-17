@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "silica"
+version = "0.0.0"
+description = "A transparent single-stream LLM engine for Apple Silicon (MLX)"
+readme = "README.md"
+requires-python = ">=3.10"   # mlx>=0.30 requires >=3.10
+license = { text = "MIT" }
+authors = [{ name = "Marc Lelarge" }]
+keywords = ["mlx", "apple-silicon", "llm", "inference", "quantization", "qwen"]
+
+# NOTE (audit §7 "MLX API churn"): mlx / mlx-lm move fast and silica leans on
+# mx.fast.* + metal_kernel. Pin EXACT versions on your dev machine once M0
+# parity passes, and record them in any result. The ranges below are a floor.
+dependencies = [
+    "mlx>=0.30",          # core array runtime + mx.fast.* + mx.quantize
+    "safetensors>=0.4",   # checkpoint format
+    "transformers>=4.51", # tokenizer + ChatML chat template (Qwen3 support)
+    "numpy>=1.24",
+    "huggingface_hub>=0.24",
+]
+
+[project.optional-dependencies]
+# mlx-lm is REFERENCE ONLY — the parity oracle, never imported by silica/*.
+reference = ["mlx-lm>=0.20"]
+# Independent (non-circular) fp32 CPU oracle for parity (heavy; optional).
+oracle = ["torch>=2.2"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+silica-generate = "silica.generate:main"
+silica-bench = "bench.decode:main"
+
+[tool.setuptools]
+packages = ["silica", "silica.kernels", "bench"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-q"
+markers = ["device: requires MLX + a Qwen3 checkpoint (M0 parity gate)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
