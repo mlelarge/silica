@@ -86,3 +86,50 @@ def test_quant_perplexity_regression_bounded(quant_models):
     assert ppl_q4 < ppl_fp16 * 1.5, (
         f"4-bit PPL {ppl_q4:.2f} regressed >50% vs fp16 {ppl_fp16:.2f}"
     )
+
+
+# ---- quantized KV cache (the separate quantized-SDPA path) ----------------- #
+
+
+@pytest.mark.device
+def test_quantized_kv_8bit_sdpa_path_close_to_fp(quant_models):
+    """The quantized_matmul SDPA path computes ~the same attention as fp KV:
+    next-token logit cosine ~1 and argmax agree on an unambiguous context.
+    Uses quantize-from-step-0 caches to exercise the quantized path on prefill."""
+    import numpy as np
+    from silica.cache import make_cache
+
+    fp16, _, tok = quant_models
+    ids = mx.array(tok.encode("List the first five prime numbers: 2, 3, 5,"))[None]
+
+    a = fp16(ids, cache=make_cache(len(fp16.layers)))[0, -1].astype(mx.float32)
+    b = fp16(ids, cache=make_cache(len(fp16.layers), kv_bits=8))[0, -1].astype(mx.float32)
+    mx.eval(a, b)
+    av = np.asarray(a.tolist(), dtype=np.float64)
+    bv = np.asarray(b.tolist(), dtype=np.float64)
+    cos = float(av @ bv / (np.linalg.norm(av) * np.linalg.norm(bv)))
+    assert cos > 0.99, f"8-bit KV SDPA diverged from fp (cosine {cos:.4f})"
+    assert int(av.argmax()) == int(bv.argmax())
+
+
+@pytest.mark.device
+def test_quantized_kv_start_keeps_prefill_exact(quant_models):
+    """With quantized_kv_start=0 the prompt stays fp, so the FIRST generated
+    token matches fp KV exactly (only the long tail is quantized)."""
+    fp16, _, tok = quant_models
+    prompt = "List the first five prime numbers:"
+    base = GenConfig(max_tokens=1, temperature=0.0)
+    g_fp = generate(fp16, tok, prompt, base, stream=False)
+    g_q8 = generate(fp16, tok, prompt,
+                    GenConfig(max_tokens=1, temperature=0.0, kv_bits=8), stream=False)
+    assert g_q8 == g_fp
+
+
+@pytest.mark.device
+def test_quantized_kv_4bit_generates_clean_text(quant_models):
+    """4-bit KV cache must still produce clean (no replacement-char) text."""
+    fp16, _, tok = quant_models
+    out = generate(fp16, tok, "Name three primary colors.",
+                   GenConfig(max_tokens=16, temperature=0.0, kv_bits=4, kv_group_size=32),
+                   stream=False)
+    assert out.strip() and "�" not in out

@@ -53,8 +53,15 @@ def weight_bytes_per_token(
         body_bpw = _affine_bits_per_weight(bits, group_size)
         eb = embed_bits if embed_bits is not None else 16  # often kept higher/fp
         embed_bpw = _affine_bits_per_weight(eb, group_size) if embed_bits else 16.0
-    # tied lm_head: embedding read once for input, once as output projection
-    return (counts["body"] * body_bpw + counts["embed_lm_head"] * embed_bpw * 2) / 8.0
+    # body weights: every weight read once per decode token.
+    # output projection (lm_head; tied == the embedding matrix): ONE full read.
+    # input embedding: a GATHER of a single row (~hidden floats) — negligible,
+    # NOT a full-matrix read, so it must not be counted as one (this was a
+    # double-count that pushed achieved bandwidth above the chip's peak).
+    body_bytes = counts["body"] * body_bpw / 8.0
+    lm_head_bytes = counts["embed_lm_head"] * embed_bpw / 8.0
+    input_embed_bytes = cfg.hidden_size * embed_bpw / 8.0
+    return body_bytes + lm_head_bytes + input_embed_bytes
 
 
 def kv_bytes_per_token(cfg: ModelConfig, context_len: int, kv_bits: int | None = None) -> float:

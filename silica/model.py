@@ -22,6 +22,7 @@ import mlx.nn as nn
 
 from .config import ModelConfig
 from .cache import KVCache
+from .attention import sdpa
 
 
 def causal_additive_mask(seq_len: int, offset: int, dtype) -> mx.array | None:
@@ -84,8 +85,8 @@ class Attention(nn.Module):
         if cache is not None:
             k, v = cache.update_and_fetch(k, v)
 
-        # GQA + causal handled by the one fast call (unquantized KV).
-        out = mx.fast.scaled_dot_product_attention(q, k, v, scale=self.scale, mask=mask)
+        # fp KV -> mx.fast SDPA; quantized KV -> manual quantized_matmul path.
+        out = sdpa(q, k, v, scale=self.scale, mask=mask, cache=cache)
         out = out.transpose(0, 2, 1, 3).reshape(b, l, -1)
         return self.o_proj(out)
 

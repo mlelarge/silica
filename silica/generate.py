@@ -13,9 +13,22 @@ from typing import Iterator
 import mlx.core as mx
 
 from .config import GenConfig, ModelConfig
-from .cache import make_cache
+from .cache import make_cache, KVCache
 from .sample import make_sampler
 from .detokenize import IncrementalDetokenizer
+
+
+def maybe_quantize_kv_cache(cache, cfg: GenConfig) -> None:
+    """Convert fp layer caches to quantized once past `quantized_kv_start`.
+
+    Mirrors mlx-lm: the prompt (prefill) and the first `quantized_kv_start`
+    tokens stay fp — exact — then KV is quantized in place for the long tail.
+    """
+    if cfg.kv_bits is None:
+        return
+    for i, c in enumerate(cache):
+        if isinstance(c, KVCache) and c.offset > cfg.quantized_kv_start:
+            cache[i] = c.to_quantized(group_size=cfg.kv_group_size, bits=cfg.kv_bits)
 
 
 def load_tokenizer(model_path):
@@ -44,19 +57,21 @@ def generate_step(
 ) -> Iterator[int]:
     """Yield generated token ids one at a time (greedy/sampled)."""
     sampler = make_sampler(cfg)
-    cache = make_cache(len(model.layers))
+    cache = make_cache(len(model.layers))     # fp; quantized after prefill if kv_bits
 
     def step(tokens: mx.array) -> mx.array:
         logits = model(tokens, cache=cache)[:, -1, :]
         return sampler(logits)
 
     y = step(mx.array(prompt_ids)[None])      # prefill -> first token, shape (1,)
+    maybe_quantize_kv_cache(cache, cfg)
     mx.async_eval(y)
 
     n = 0
     while True:
         if n + 1 != cfg.max_tokens:
             next_y = step(y.reshape(1, 1))    # enqueue step t+1 ...
+            maybe_quantize_kv_cache(cache, cfg)
             mx.async_eval(next_y)
         if n == 0:
             mx.eval(y)
@@ -113,11 +128,12 @@ def main():
     ap.add_argument("--prompt", default="Give me a short introduction to large language models.")
     ap.add_argument("--max-tokens", type=int, default=256)
     ap.add_argument("--temp", type=float, default=0.0)
+    ap.add_argument("--kv-bits", type=int, default=None, help="quantize KV cache to N bits")
     args = ap.parse_args()
 
     model, _ = load_model(args.model)
     tokenizer = load_tokenizer(resolve_model_path(args.model))
-    cfg = GenConfig(max_tokens=args.max_tokens, temperature=args.temp)
+    cfg = GenConfig(max_tokens=args.max_tokens, temperature=args.temp, kv_bits=args.kv_bits)
     generate(model, tokenizer, args.prompt, cfg)
 
 

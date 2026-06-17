@@ -23,9 +23,9 @@ from silica.generate import generate_step
 from bench.roofline import byte_budget
 
 
-def time_decode(model, prompt_ids, n_tokens: int) -> float:
+def time_decode(model, prompt_ids, n_tokens: int, kv_bits=None) -> float:
     """Return seconds to decode `n_tokens` tokens (prefill excluded from rate)."""
-    cfg = GenConfig(max_tokens=n_tokens, temperature=0.0)
+    cfg = GenConfig(max_tokens=n_tokens, temperature=0.0, kv_bits=kv_bits)
     eos = tuple()  # ignore EOS so we always measure exactly n_tokens
     it = generate_step(model, prompt_ids, cfg, eos)
     first = next(it)  # consume prefill + first token
@@ -39,16 +39,21 @@ def time_decode(model, prompt_ids, n_tokens: int) -> float:
 
 
 def run(model_id: str, bcfg: BenchConfig, n_tokens: int, context_len: int,
-        bits: int | None):
+        bits: int | None, kv_bits: int | None = None):
     model, cfg = load_model(model_id, dtype=mx.bfloat16)
-    prompt_ids = list(range(1, 17))  # synthetic 16-token prompt for steady state
+    # Decode at the requested context: prefill `context_len` synthetic tokens so
+    # the timed steps actually read that much KV. Charging KV bytes at a context
+    # the run never reached is what let achieved-BW exceed the chip's peak.
+    prompt_len = max(8, context_len)
+    prompt_ids = list(range(1, prompt_len + 1))
+    eff_ctx = prompt_len + n_tokens // 2  # mean KV depth over the timed window
 
     for _ in range(bcfg.warmup):
-        time_decode(model, prompt_ids, min(n_tokens, 16))
+        time_decode(model, prompt_ids, min(n_tokens, 16), kv_bits=kv_bits)
 
     rates = []
     for _ in range(bcfg.runs):
-        dt, count = time_decode(model, prompt_ids, n_tokens)
+        dt, count = time_decode(model, prompt_ids, n_tokens, kv_bits=kv_bits)
         if count > 0:
             rates.append(count / dt)
 
@@ -56,10 +61,10 @@ def run(model_id: str, bcfg: BenchConfig, n_tokens: int, context_len: int,
     iqr = (statistics.quantiles(rates, n=4)[2] - statistics.quantiles(rates, n=4)[0]
            ) if len(rates) >= 4 else 0.0
 
-    budget = byte_budget(cfg, context_len, bits=bits)
+    budget = byte_budget(cfg, eff_ctx, bits=bits, kv_bits=kv_bits)
     print(f"chip            : {bcfg.chip_name}")
-    print(f"model           : {model_id}  (bits={bits or 'fp16'})")
-    print(f"context_len     : {context_len}")
+    print(f"model           : {model_id}  (w={bits or 'fp16'}, kv={kv_bits or 'fp16'})")
+    print(f"context (decode): prefill {prompt_len} + {n_tokens} dec -> mean {eff_ctx} tok")
     print(f"tok/s (median)  : {med:.1f}  (IQR {iqr:.1f}, n={len(rates)})")
     print(f"bytes/token     : weights={budget.weights/1e6:.1f}MB  "
           f"kv={budget.kv/1e6:.1f}MB  total={budget.total/1e6:.1f}MB")
@@ -80,6 +85,7 @@ def main():
     ap.add_argument("--context-len", type=int, default=0,
                     help="context length to charge KV bytes at")
     ap.add_argument("--bits", type=int, default=None, help="weight quant bits (fp16 if unset)")
+    ap.add_argument("--kv-bits", type=int, default=None, help="KV cache quant bits (fp16 if unset)")
     ap.add_argument("--bandwidth", type=float, default=None,
                     help="REQUIRED for %% of peak: chip rated GB/s (M3 Max 300 or 400)")
     ap.add_argument("--chip", default="unknown-apple-silicon")
@@ -89,7 +95,7 @@ def main():
 
     bcfg = BenchConfig(warmup=args.warmup, runs=args.runs,
                        device_bandwidth_gbps=args.bandwidth, chip_name=args.chip)
-    run(args.model, bcfg, args.tokens, args.context_len, args.bits)
+    run(args.model, bcfg, args.tokens, args.context_len, args.bits, args.kv_bits)
 
 
 if __name__ == "__main__":

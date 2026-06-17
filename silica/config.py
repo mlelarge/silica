@@ -121,6 +121,14 @@ class GenConfig:
     stop: tuple[str, ...] = ()      # extra string stop-sequences
     # apply the model's chat template before prefill (ChatML for Qwen3).
     use_chat_template: bool = True
+    # Quantized KV cache (M1): None -> fp KV; else memory-for-speed (~0.5x fp16
+    # decode). Quantized KV does NOT compose with a rotating cache.
+    kv_bits: int | None = None
+    kv_group_size: int = 64
+    # Keep the first `quantized_kv_start` tokens (incl. the prompt) in fp, then
+    # quantize — mirrors mlx-lm. 0 == quantize right after prefill; a larger
+    # value keeps short generations exact and only pays off at long context.
+    quantized_kv_start: int = 0
 
 
 @dataclass(frozen=True)
