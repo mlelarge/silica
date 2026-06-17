@@ -178,9 +178,11 @@ host value) forces a sync and collapses the overlap — keep the token an
       threshold.
 
 ### M2 — Perf levers (no new kernels)
-- [ ] **Baseline-first go/no-go:** measure `mlx-lm`'s achieved-bandwidth % first.
-      If it is already >~75% of usable bandwidth, the project's value pivots to
-      pedagogy/measurement and M3 is likely not worthwhile — decide here.
+- [x] **Baseline-first go/no-go** (`bench/baseline.py`, `docs/results-m2-baseline.md`):
+      on Qwen3-0.6B / M3 Max-40c, usable BW ~370 GB/s; silica == mlx-lm within
+      ~1.5% at ~69% usable (4-bit, async_eval ON). Verdict **GO**: real headroom
+      remains and `mx.compile` is unexplored by mlx-lm. async_eval is a big,
+      already-captured lever (+50% at 4-bit).
 - [ ] `mx.async_eval` overlap in the decode loop (no per-token host sync).
 - [ ] `mx.compile` the per-step *decode* forward (fixed shape; cache via
       `inputs=`/`outputs=`), prefill kept eager. Treat "does compile help with a
