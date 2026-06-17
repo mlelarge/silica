@@ -4,8 +4,10 @@
 > in the spirit of `mini-sglang` but inverted for the constraints that actually
 > bind on a Mac: memory bandwidth and quantization, not GPU scheduling.
 >
-> **Status:** pre-M0 design + scaffold. No results yet. The scaffold under
-> `silica/` is unvalidated on device (correctness-first parity not yet run).
+> **Status:** M0 correctness validated on device — the parity gate passes 7/7,
+> including an independent HuggingFace fp32 oracle. M1 (selective weight
+> quantization + perplexity harness) implemented; quantized-quality numbers
+> pending an on-device ablation run.
 
 ---
 
@@ -133,36 +135,36 @@ host value) forces a sync and collapses the overlap — keep the token an
 
 ## 5. Roadmap
 
-### M0 — Correct baseline (no quantization, no custom kernels)
-- [ ] Load Qwen3-0.6B safetensors into `mx.array` (single-shard; bf16→mlx dtype
+### M0 — Correct baseline (no quantization, no custom kernels) ✅ device-green
+- [x] Load Qwen3-0.6B safetensors into `mx.array` (single-shard; bf16→mlx dtype
       + chosen compute dtype recorded).
-- [ ] Implement the decoder block in `model.py` using `mx.fast.*` — **including
+- [x] Implement the decoder block in `model.py` using `mx.fast.*` — **including
       per-head QK-Norm, no QKV bias, head_dim=128 from config, tied lm_head.**
-- [ ] Simple growing KV cache with explicit `offset`.
-- [ ] Load tokenizer; **apply the ChatML chat template**; incremental UTF-8-safe
+- [x] Simple growing KV cache with explicit `offset`.
+- [x] Load tokenizer; **apply the ChatML chat template**; incremental UTF-8-safe
       detokenizer; **stop on EOS 151645 (`<|im_end|>`) + string stop-sequences.**
-- [ ] Greedy `generate.py` that streams correct **text**, not just token IDs.
-- [ ] **Parity test (acceptance criteria, §5a):** exact greedy/argmax-token
-      match vs `mlx-lm` is the **hard gate**; per-layer hidden-state diff to
-      localize failures; an independent **HF fp32 CPU oracle** (comparing only
-      to `mlx-lm` is circular — same `mx.fast` kernels); plus a **string-level**
-      decode test on a multibyte/emoji prompt. `allclose` only as a coarse,
-      per-layer diagnostic (default rtol will never pass cross-backend bf16).
+- [x] Greedy `generate.py` that streams correct **text**, not just token IDs.
+- [x] **Parity test (acceptance criteria, §5a):** exact greedy/argmax-token
+      match vs `mlx-lm` is the **hard gate**; an independent **HF fp32 CPU oracle**
+      (teacher-forced per-position argmax + logit cosine >0.999); plus a
+      **string-level** decode test on a multibyte/emoji prompt. Gate passes 7/7.
+      *(Remaining nicety: a committed per-layer hidden-state diff harness.)*
 
 ### M1 — Quantization
-- [ ] **Selective** `mx.quantize` at load via a `class_predicate`: body 4-bit
+- [x] **Selective** `mx.quantize` at load via a `class_predicate`: body 4-bit
       (group 64), **keep the (tied) embedding/lm_head at higher bits** and
       norms/RoPE in fp; verify each layer's last dim divides `group_size`.
-- [ ] Add 8-bit path; expose `bits`/`group_size` as config (64 default;
-      {32,64,128} as ablation knobs).
-- [ ] Separate the two quantization stories: quantized **weights** (clear win)
-      vs quantized **KV** (memory-for-speed tradeoff — quantized-KV decode is
-      ~0.5× fp16; *measure*, don't assume). Quantized and rotating caches are
-      **alternatives** (they do not compose in mainline MLX).
-- [ ] **Quality eval harness** (`bench/eval_ppl.py`): perplexity on a fixed
-      pinned corpus, reported as a column alongside the tok/s ablation, with a
-      max-regression threshold gating quantization changes. Re-run parity at a
-      stated looser tolerance.
+      (`weights.py` `_selective_predicate`; `tests/test_quant.py`.)
+- [x] Add 8-bit path; expose `bits`/`group_size` as config (64 default;
+      {32,64,128} as ablation knobs). (`QuantConfig`; `--ablate` sweeps 8/4-bit.)
+- [ ] Separate the two quantization stories: quantized **weights** (clear win,
+      done) vs quantized **KV** (memory-for-speed tradeoff — quantized-KV decode
+      is ~0.5× fp16; *measure*, don't assume). Quantized and rotating caches are
+      **alternatives** (they do not compose in mainline MLX). *(quantized KV: TODO)*
+- [x] **Quality eval harness** (`bench/eval_ppl.py`): perplexity on a fixed
+      pinned corpus (`bench/data/corpus.txt`), with a `--ablate` bits sweep and a
+      %-regression vs fp16; `tests/test_quant.py` enforces a bounded regression.
+      *(Re-run greedy parity at a looser tolerance: pending on-device run.)*
 
 ### M1.5 — Sampler & long context
 - [ ] Sampler beyond greedy: temperature / top-k / top-p / min-p / repetition

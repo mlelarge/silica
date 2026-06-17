@@ -33,9 +33,13 @@ dev = ["pytest>=8.0", "ruff>=0.6"]
 [project.scripts]
 silica-generate = "silica.generate:main"
 silica-bench = "bench.decode:main"
+silica-ppl = "bench.eval_ppl:main"
 
 [tool.setuptools]
 packages = ["silica", "silica.kernels", "bench"]
+
+[tool.setuptools.package-data]
+bench = ["data/*.txt"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
