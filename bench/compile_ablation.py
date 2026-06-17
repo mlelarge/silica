@@ -81,20 +81,36 @@ def main():
     ap.add_argument("--force", action="store_true", help="run even if the machine looks busy")
     args = ap.parse_args()
 
+    # Gate on memory-bus STABILITY, not load average: measure the bandwidth
+    # ceiling twice. A low or unstable ceiling means the shared CPU/GPU bus is
+    # contended and decode numbers can't be trusted (load avg alone missed this:
+    # at load ~3.8 the ceiling still swung 199<->376 GB/s between runs).
+    # Two independent quietness checks — batch=1 decode is sensitive to BOTH:
+    #  (1) memory-bus stability (GPU bandwidth ceiling, measured twice), and
+    #  (2) CPU quietness (load average) — decode is partly per-step dispatch
+    #      bound, so a healthy bus alone does NOT certify it (observed: ceiling
+    #      ~370 GB/s yet decode ~1/3 below baseline at load ~3.8).
     load1 = os.getloadavg()[0]
-    ncpu = os.cpu_count() or 1
-    if load1 > 0.5 * ncpu and not args.force:
+    c1, c2 = measure_peak_bandwidth(), measure_peak_bandwidth()
+    usable = min(c1, c2)
+    spread = abs(c1 - c2) / max(c1, c2)
+    expected = 0.90 * args.spec_bandwidth
+    bus_bad = spread > 0.06 or usable < 0.85 * expected
+    cpu_bad = load1 > 2.0
+    print(f"usable BW: {c1:.0f}/{c2:.0f} GB/s  (spread {spread*100:.0f}%, "
+          f"expect ~{expected:.0f})   load1: {load1:.1f}")
+    if (bus_bad or cpu_bad) and not args.force:
+        why = ("memory bus" if bus_bad else "") + (" & " if bus_bad and cpu_bad else "") + ("CPU" if cpu_bad else "")
         raise SystemExit(
-            f"load average {load1:.1f} on {ncpu} cpus looks high — bandwidth numbers "
-            f"would be contaminated (shared CPU/GPU memory bus). Re-run when quiet, "
-            f"or pass --force for throwaway numbers."
+            f"machine not quiet enough ({why} contended) — decode numbers would be "
+            f"unreliable (batch=1 decode needs a stable bus AND idle CPU; need load<=2). "
+            f"Re-run when idle, or pass --force for throwaway numbers."
         )
+    print()
 
     path = resolve_model_path(args.model)
     prompt_ids = list(range(1, 9))
     eff_ctx = len(prompt_ids) + args.tokens // 2
-    usable = measure_peak_bandwidth()
-    print(f"usable BW (meas.): {usable:.0f} GB/s  (load1={load1:.1f})\n")
 
     print(f"{'config':<20}{'tok/s':>9}{'GB/s':>9}{'% usable':>10}")
     print("-" * 48)
