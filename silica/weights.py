@@ -21,7 +21,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from .config import ModelConfig, QuantConfig
-from .model import Qwen3ForCausalLM
+from .models import build_model
 
 
 def resolve_model_path(model: str | Path) -> Path:
@@ -94,8 +94,8 @@ def load_model(
     *,
     quant: QuantConfig | None = None,
     dtype: mx.Dtype = mx.bfloat16,
-) -> tuple[Qwen3ForCausalLM, ModelConfig]:
-    """Build and load a silica Qwen3 model.
+) -> tuple[nn.Module, ModelConfig]:
+    """Build and load a silica model (architecture chosen by the registry).
 
     `quant=None` -> M0 fp baseline. Pass a QuantConfig for M1 selective quant.
     `dtype` is the fp compute dtype (Qwen3 weights are stored bf16); record it
@@ -104,7 +104,7 @@ def load_model(
     path = resolve_model_path(model)
     cfg = ModelConfig.from_json(path / "config.json")
 
-    net = Qwen3ForCausalLM(cfg)
+    net = build_model(cfg)              # registry dispatch on cfg.architectures
 
     weights = _load_safetensors(path)
     if cfg.tie_word_embeddings:

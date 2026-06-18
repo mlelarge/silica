@@ -45,6 +45,8 @@ class ModelConfig:
     bos_token_id: int | None = 151643      # <|endoftext|>
     eos_token_id: int | tuple[int, ...] = 151645  # <|im_end|>
     model_type: str = "qwen3"
+    # HF `architectures` field -> selects the silica model class (the registry).
+    architectures: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # head_dim is intentionally decoupled from hidden_size//num_heads on Qwen3
@@ -68,10 +70,12 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ModelConfig":
         known = {f.name for f in fields(cls)}
-        # head_dim may be absent in some configs; fall back to the derived value
-        # only as a last resort, and record nothing silently.
-        if "head_dim" not in d:
-            d = {**d, "head_dim": d["hidden_size"] // d["num_attention_heads"]}
+        d = dict(d)
+        # head_dim may be absent OR explicitly null (e.g. SmolLM2); derive it.
+        if d.get("head_dim") is None:
+            d["head_dim"] = d["hidden_size"] // d["num_attention_heads"]
+        if isinstance(d.get("architectures"), list):
+            d["architectures"] = tuple(d["architectures"])
         return cls(**{k: v for k, v in d.items() if k in known})
 
     @classmethod

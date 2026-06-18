@@ -23,16 +23,25 @@ audit) · results: [m1](docs/results-m1.md) · [m2](docs/results-m2-baseline.md)
 ```
 silica/
   config.py       typed config (ModelConfig from HF config.json, Quant/Gen/Bench)
-  weights.py      load Qwen3 safetensors (single + sharded), selective quantize
-  model.py        Qwen3 decoder against mx.fast.* (QK-Norm, no bias, head_dim, tied lm_head)
-  cache.py        growing KV cache (+ rotating stub); quant|rotating are alternatives
-  sample.py       greedy (M0) + temp/top-k/top-p/min-p (M1.5)
-  detokenize.py   incremental UTF-8-safe BPE detok + stop sequences
+  weights.py      load safetensors (single + sharded), selective quantize, registry dispatch
+  models/         per-architecture model files + a registry (SGLang-style)
+    common.py     shared layers: MLP, DecoderLayer, Decoder, CausalLM, mask, build_rope
+    qwen3.py      Qwen3 (per-head QK-Norm)        llama.py   Llama (no QK-Norm, llama3 RoPE)
+    __init__.py   REGISTRY: HF `architectures` field -> model class
+  cache.py        growing KV cache (+ quantized); quant|rotating are alternatives
+  sample.py       greedy + temp/top-k/top-p/min-p (per-sampler RNG key)
+  detokenize.py   incremental UTF-8-safe BPE detok + stop sequences + flush
   generate.py     chat template -> prefill -> decode loop (async_eval) -> streamed text
-  kernels/        custom Metal fusions (M3, gated — empty by design)
-bench/            decode tok/s + achieved-bandwidth %; corrected byte model
-tests/            config + roofline (pure-python) and the device parity gate
+  kernels/        custom Metal fusions (M3, gated out by evidence — empty by design)
+bench/            decode tok/s + achieved-bandwidth %; cross-engine vs llama.cpp
+tests/            pure-python (config, roofline, sampler, detok, cache) + device parity gates
 ```
+
+**Supported models:** Qwen3 and Llama-3.x / SmolLM2 (both `LlamaForCausalLM`),
+dispatched from the checkpoint's `architectures` field. Adding one is a ~40-line
+attention block in `silica/models/` + a registry entry; the entire runtime and
+benchmark harness are reused unchanged. Both families pass an exact next-token
+parity gate vs `mlx-lm` (see [docs/results-generality.md](docs/results-generality.md)).
 
 ## Setup (Apple Silicon, [uv](https://docs.astral.sh/uv/))
 
