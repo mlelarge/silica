@@ -67,6 +67,28 @@ holds: MoE is what makes a 30B model usable at batch=1 on Apple Silicon. (At
 batch=1 the SwitchGLU `do_sort` path is inactive, so it isn't the cause; this is
 the intrinsic cost of sparse gather at one token.)
 
+### Why 51%? — investigation
+
+Two contention-robust ratio experiments (the absolute % is measured under machine
+load ~4.5–5.0 — Spotlight was indexing the fresh 17 GB download, and CPU/GPU share
+the memory bus — so treat absolutes as a floor; the *ratios* cancel it):
+
+1. **silica vs mlx-lm, interleaved on the same 30B-A3B-4bit:** `silica/mlx-lm =
+   0.99` (6 rounds, 0.97–1.02; 106.6 vs 107.7 tok/s). silica's MoE block is at
+   reference efficiency — **the gap is not a silica inefficiency**, it lives in
+   MLX's `gather_qmm` path (same finding as dense M2: we don't beat Apple's kernels).
+2. **async vs sync decode:** `async/sync = 1.23`. silica's `generate_step` overlap
+   already recovers +23% of launch latency. The MoE is *less* dispatch-bound than a
+   tiny dense model (M2 dense 4-bit was ~+50%) — it does more real work per step, so
+   launch gaps are a smaller fraction. **The residual gap is not exposed dispatch.**
+
+Conclusion: the gap is the **sparse-gather memory pattern** — `gather_qmm` over
+8-of-128 *scattered* experts (each only `moe_intermediate`=768 wide) underutilizes
+bandwidth vs a dense contiguous GEMV, and async already hides the dispatch part.
+There is **no silica-level fix** (we're at the primitive's efficiency); closing it
+needs a **fused MoE kernel** (dequant-in-register + better expert locality) — a
+kernel-level effort, the same call as the M3 gate.
+
 ## Enabler — pre-quantized loading
 
 Running Qwen3-30B-A3B at all needed `load_model` to load an **already-quantized**
