@@ -45,20 +45,42 @@ Analytic from each config (M3 Max-40c, ~370 GB/s usable, 4-bit weights):
 | **Qwen3-30B-A3B** | **30.5 B** | **3.35 B** | **11%** | 1789 MB | **207** |
 
 The byte model's active count (3.35 B) matches the model's own name — **A3B = ~3 B
-active** — an independent check of the accounting. A *dense* 30B at 4-bit reads
-~17 GB/token → ~22 tok/s; **Qwen3-30B-A3B reads only its active experts → ~207
-tok/s, ~9× faster at batch=1** for the same total capacity. That is exactly the
-bandwidth-bound thesis: MoE is the architecture that buys capability per byte read.
+active** — an independent check of the accounting. The analytic ceiling assumes a
+dense model reads ~17 GB/token (→ ~22 tok/s) while the MoE reads only its active
+experts.
+
+### Empirical — Qwen3-30B-A3B 4-bit, measured on device
+
+Loaded **pre-quantized** (~17 GB 4-bit, not the ~60 GB fp) and parity-checked:
+
+- **Parity: PASS** vs mlx-lm (exact next-token) — the first *empirical* validation
+  of Qwen3-MoE (`Qwen3MoeForCausalLM`, 128 experts/top-8, `QuantizedSwitchLinear`).
+- **Decode: 110 tok/s** at batch=1 — 1721 MB/token, **189 GB/s achieved = 51% of
+  usable**. A 30B model running at interactive speed on a laptop.
+
+The honest finding: MoE decode reaches only **~51% of usable bandwidth, vs the
+~70% dense** silica hit in M2. The gathered-expert matmuls (`gather_qmm` over
+scattered experts + per-step dispatch across 48 layers × router+3 gathers) are
+less bandwidth-efficient than a dense contiguous GEMV. So the real-world edge over
+a dense 30B is **~7×, not the naive ~9×** — still large, and the demonstration
+holds: MoE is what makes a 30B model usable at batch=1 on Apple Silicon. (At
+batch=1 the SwitchGLU `do_sort` path is inactive, so it isn't the cause; this is
+the intrinsic cost of sparse gather at one token.)
+
+## Enabler — pre-quantized loading
+
+Running Qwen3-30B-A3B at all needed `load_model` to load an **already-quantized**
+checkpoint (mlx-community 4-bit, ~17 GB) rather than download ~60 GB fp and
+quantize at load. It detects `config["quantization"]` and reconstructs the packed
+module structure (quantize a module iff the checkpoint carries its `.scales`,
+covering uniform / mixed-precision / stacked MoE experts). Validated on
+Qwen3-0.6B-4bit (dense) and OLMoE-1B-7B-4bit (MoE) — `tests/test_prequant.py`.
 
 ## Honest limits
 
-- **Qwen3-30B-A3B is registered and roofline-analyzed but not empirically
-  parity-run** — it reuses components already validated (Qwen3 attention on
-  Qwen3-0.6B + the MoEBlock on OLMoE), and the real fp decode is download-gated
-  (~60 GB fp / would need pre-quantized loading support, which silica doesn't have
-  yet — it quantizes fp at load).
 - The SwitchGLU `do_sort` token-reordering optimization (for large prefills) is
   omitted — correct but slower than mlx-lm on big batched prefills; irrelevant at
-  batch=1 decode.
+  batch=1 decode (and not the cause of the 51% efficiency, which is the sparse
+  gather itself).
 - Mixed dense/MoE layers (`mlp_only_layers`) aren't handled; Qwen3-30B-A3B is
   all-MoE (`decoder_sparse_step=1`) so it's fine.

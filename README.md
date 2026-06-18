@@ -17,7 +17,8 @@ On Apple M3 Max (40-core, 400 GB/s), Qwen3-0.6B / Llama-3.2-1B:
 |---|---|
 | **Correctness** | parity gate vs `mlx-lm` **+ an independent HuggingFace fp32 oracle**; 69-test suite |
 | **Models** | dense Qwen3 + Llama **and MoE (OLMoE, Qwen3-MoE)**, registry-dispatched; exact next-token parity vs `mlx-lm` |
-| **MoE roofline** | Qwen3-30B-A3B holds 30B but reads ~3B active/token → ~9× a dense 30B's decode at batch=1 |
+| **MoE roofline** | **Qwen3-30B-A3B 4-bit decodes 110 tok/s** at batch=1 (reads ~3B active/token) — ~7× a dense 30B; 51% of usable BW |
+| **Pre-quantized load** | loads mlx-community 4/8-bit checkpoints directly (e.g. 30B-A3B in ~17 GB, not ~60 GB fp) |
 | **Quantization** | 8-bit ~lossless; 4-bit/g64 +17.8% PPL, **4-bit/g32 +8.0%** (vs llama.cpp Q4_K_M +6.2%) |
 | **Decode perf** | silica **== `mlx-lm`** within ~1.5% (~70% of usable bandwidth); `async_eval` +50% at 4-bit; `mx.compile` neutral |
 | **vs `llama.cpp`** | silica ≈ **0.89×** decode speed — ~12% behind hand-tuned C++/Metal |
@@ -61,10 +62,10 @@ tests/            pure-python (config, roofline, sampler, detok, cache, ppl) + d
 **Mixture-of-Experts** (**OLMoE**, **Qwen3-MoE** like Qwen3-30B-A3B) — dispatched
 from the checkpoint's `architectures` field. Adding one is a small attention
 block + registry entry; the entire runtime and bench harness are reused unchanged.
-Qwen3, Llama, and OLMoE each pass an exact next-token parity gate vs `mlx-lm`
-([generality](docs/results-generality.md), [MoE](docs/results-moe.md)). MoE is the
-on-thesis case: Qwen3-30B-A3B holds 30B weights but decodes at the bandwidth of
-its ~3B active experts.
+Qwen3, Llama, OLMoE, and Qwen3-30B-A3B each pass an exact next-token parity gate vs
+`mlx-lm` ([generality](docs/results-generality.md), [MoE](docs/results-moe.md)). MoE
+is the on-thesis case: Qwen3-30B-A3B holds 30B weights but reads only its ~3B active
+experts — **110 tok/s at batch=1** (~7× a dense 30B), loaded pre-quantized in ~17 GB.
 
 ## Setup (Apple Silicon, [uv](https://docs.astral.sh/uv/))
 
