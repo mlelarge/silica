@@ -42,9 +42,11 @@ value even if the fusion kernels (M3) win nothing.
 
 **v0 is (in scope):**
 - Single-stream (batch = 1) inference of decoder LMs, via a small model registry
-  (HF `architectures` -> model class). **Qwen3** and **Llama** (`LlamaForCausalLM`:
-  Llama-3.x / SmolLM2, incl. llama3 RoPE scaling) both validated against `mlx-lm`
-  parity; adding an architecture is one ~40-line attention block (`silica/models/`).
+  (HF `architectures` -> model class): dense **Qwen3** and **Llama** (Llama-3.x /
+  SmolLM2, incl. llama3 RoPE), plus **Mixture-of-Experts** (**OLMoE**, **Qwen3-MoE**
+  — gathered experts via `mx.gather_qmm`). Qwen3/Llama/OLMoE validated vs `mlx-lm`
+  parity. MoE is on-thesis: a decode step reads only the active experts, so the
+  byte-bandwidth metric counts active params (Qwen3-30B-A3B = 30B held, ~3B read).
 - Apple Silicon / Metal GPU first. Record the exact chip + rated memory
   bandwidth per run (e.g. M3 Max ships as **300 *or* 400 GB/s**).
 - 4-bit and 8-bit weight quantization (selective/mixed-precision, §5 M1).

@@ -16,7 +16,8 @@ On Apple M3 Max (40-core, 400 GB/s), Qwen3-0.6B / Llama-3.2-1B:
 | Dimension | Result |
 |---|---|
 | **Correctness** | parity gate vs `mlx-lm` **+ an independent HuggingFace fp32 oracle**; 69-test suite |
-| **Models** | Qwen3 + Llama (`LlamaForCausalLM`), registry-dispatched; exact next-token parity on both |
+| **Models** | dense Qwen3 + Llama **and MoE (OLMoE, Qwen3-MoE)**, registry-dispatched; exact next-token parity vs `mlx-lm` |
+| **MoE roofline** | Qwen3-30B-A3B holds 30B but reads ~3B active/token → ~9× a dense 30B's decode at batch=1 |
 | **Quantization** | 8-bit ~lossless; 4-bit/g64 +17.8% PPL, **4-bit/g32 +8.0%** (vs llama.cpp Q4_K_M +6.2%) |
 | **Decode perf** | silica **== `mlx-lm`** within ~1.5% (~70% of usable bandwidth); `async_eval` +50% at 4-bit; `mx.compile` neutral |
 | **vs `llama.cpp`** | silica ≈ **0.89×** decode speed — ~12% behind hand-tuned C++/Metal |
@@ -31,7 +32,8 @@ left for a transparent engine to win over Apple's tuned kernels.
 (annotated code tour + lessons) · [docs/AUDIT.md](docs/AUDIT.md) (pre-build plan audit) ·
 [docs/CODE_AUDIT.md](docs/CODE_AUDIT.md) (post-build code audit) · results:
 [m1 quant](docs/results-m1.md) · [m2 perf](docs/results-m2-baseline.md) ·
-[m4 cross-engine](docs/results-m4-cross-engine.md) · [generality](docs/results-generality.md).
+[m4 cross-engine](docs/results-m4-cross-engine.md) · [generality](docs/results-generality.md) ·
+[MoE](docs/results-moe.md).
 
 ## Layout
 
@@ -40,8 +42,9 @@ silica/
   config.py       typed config (ModelConfig from HF config.json, Quant/Gen/Bench)
   weights.py      load safetensors (single + sharded), selective quantize, registry dispatch
   models/         per-architecture model files + a registry (SGLang-style)
-    common.py     shared layers: MLP, DecoderLayer, Decoder, CausalLM, mask, build_rope
-    qwen3.py      Qwen3 (per-head QK-Norm)        llama.py   Llama (no QK-Norm, llama3 RoPE)
+    common.py     shared layers: MLP, SwitchGLU/MoEBlock, Decoder, CausalLM, build_rope
+    qwen3.py llama.py        dense (Qwen3 QK-Norm; Llama llama3-RoPE)
+    olmoe.py qwen3_moe.py    MoE (router + gathered experts via mx.gather_qmm)
     __init__.py   REGISTRY: HF `architectures` field -> model class
   cache.py        growing + quantized KV cache; PrefixCache (single-stream prefix reuse)
   attention.py    sdpa() — fp -> mx.fast SDPA; quantized KV -> quantized_matmul path
@@ -54,11 +57,14 @@ bench/            decode tok/s + achieved-bandwidth %; quant-quality PPL; cross-
 tests/            pure-python (config, roofline, sampler, detok, cache, ppl) + device parity gates
 ```
 
-**Supported models:** Qwen3 and Llama-3.x / SmolLM2 (both `LlamaForCausalLM`),
-dispatched from the checkpoint's `architectures` field. Adding one is a ~40-line
-attention block in `silica/models/` + a registry entry; the entire runtime and
-benchmark harness are reused unchanged. Both families pass an exact next-token
-parity gate vs `mlx-lm` ([docs/results-generality.md](docs/results-generality.md)).
+**Supported models:** dense **Qwen3** and **Llama-3.x / SmolLM2**, plus
+**Mixture-of-Experts** (**OLMoE**, **Qwen3-MoE** like Qwen3-30B-A3B) — dispatched
+from the checkpoint's `architectures` field. Adding one is a small attention
+block + registry entry; the entire runtime and bench harness are reused unchanged.
+Qwen3, Llama, and OLMoE each pass an exact next-token parity gate vs `mlx-lm`
+([generality](docs/results-generality.md), [MoE](docs/results-moe.md)). MoE is the
+on-thesis case: Qwen3-30B-A3B holds 30B weights but decodes at the bandwidth of
+its ~3B active experts.
 
 ## Setup (Apple Silicon, [uv](https://docs.astral.sh/uv/))
 
