@@ -7,9 +7,12 @@ test coverage), each reading the actual source. Every behavioral finding was the
 (a misread "KV growth-size bug") and confirmed the rest. 67 raw findings; the
 consequential confirmed ones are below.
 
-> **Resolution (follow-up):** all Tier 1 + Tier 2 findings (#1–#8) are **FIXED**
-> with matching tests (commits `7e94607`, `ac92a73`; suite 49/49). The
-> partially-correct #9/#10 and the Tier 3 test gaps / Tier 4 nits remain open.
+> **Resolution (follow-up):** Tier 1 + Tier 2 (#1–#8) **FIXED** with tests
+> (`7e94607`, `ac92a73`); **Tier 3 test gaps + Tier 4 nits done** (`7ffe73c`:
+> multi-chunk KV growth, offset>0 mask, quantized-KV GQA, sampler filters,
+> error paths; dead code removed, `l`→`seq`, ruff clean). Suite 34 → **61**.
+> Still open: the partially-correct #9/#10 (sliding-window PPL, median
+> peak-bandwidth gate) — measurement-rigor refinements, not bugs.
 
 **Verdict.** No correctness bug on the *proven* happy path — the model numerics,
 GQA, RoPE/QK-norm order, attention scale, quantized-SDPA math, and the
