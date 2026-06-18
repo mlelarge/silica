@@ -12,10 +12,32 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-from silica.weights import load_model, resolve_model_path
+from silica.weights import load_model, resolve_model_path, _selective_predicate
 from silica.config import QuantConfig, GenConfig
 from silica.generate import load_tokenizer, generate
 from bench.eval_ppl import perplexity, load_corpus
+
+
+class _FakeQuantizable:
+    """A stand-in nn.Module with a weight + to_quantized, for predicate tests."""
+    def __init__(self, last_dim):
+        self.weight = mx.zeros((8, last_dim))
+
+    def to_quantized(self):  # presence is what _selective_predicate checks
+        ...
+
+
+def test_embed_quant_respects_group_size_guard():
+    """embed/lm_head must hit the divisibility guard too (not crash mx.quantize)."""
+    pred = _selective_predicate(QuantConfig(bits=4, group_size=64, embed_bits=6))
+    # non-divisible last dim -> skipped to fp (graceful), same as any other layer
+    assert pred("model.embed_tokens", _FakeQuantizable(100)) is False
+    assert "model.embed_tokens" in pred.skipped
+    # divisible -> quantized at embed_bits
+    out = pred("model.embed_tokens", _FakeQuantizable(128))
+    assert isinstance(out, dict) and out["bits"] == 6
+    # a non-divisible body Linear is likewise skipped
+    assert pred("model.layers.0.mlp.gate_proj", _FakeQuantizable(100)) is False
 
 
 @pytest.fixture(scope="module")

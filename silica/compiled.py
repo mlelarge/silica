@@ -54,11 +54,27 @@ def _decode_forward(model, token, offset, k_cache, v_cache):
     return logits[:, -1, :], new_k, new_v
 
 
+_COMPILED_STEPS: dict = {}
+
+
 def make_compiled_step(model):
-    """Return the shapeless-compiled per-token decode step."""
+    """Return the shapeless-compiled per-token decode step, CACHED per model.
+
+    mx.compile keys its cache on the wrapped function object, so building a fresh
+    closure here on every call forced a full re-trace each generation — defeating
+    the point of compiling. We memoize on id(model) so the trace is paid once and
+    reused. (id() never reaped; fine for the few long-lived models we load.)
+    """
+    cached = _COMPILED_STEPS.get(id(model))
+    if cached is not None:
+        return cached
+
     def fn(token, offset, k_cache, v_cache):
         return _decode_forward(model, token, offset, k_cache, v_cache)
-    return mx.compile(fn, shapeless=True)
+
+    step = mx.compile(fn, shapeless=True)
+    _COMPILED_STEPS[id(model)] = step
+    return step
 
 
 def compiled_generate_step(model, prompt_ids, cfg: GenConfig, eos_ids) -> Iterator[int]:

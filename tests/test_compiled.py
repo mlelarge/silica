@@ -43,6 +43,15 @@ def test_compiled_decode_matches_eager_fp16(model_path):
 
 
 @pytest.mark.device
+def test_compiled_step_is_cached_per_model(model_path):
+    """make_compiled_step must memoize per model (rebuilding forced a re-trace
+    every generation)."""
+    from silica.compiled import make_compiled_step
+    model, _ = load_model(model_path, dtype=mx.bfloat16)
+    assert make_compiled_step(model) is make_compiled_step(model)
+
+
+@pytest.mark.device
 def test_compiled_decode_matches_eager_quantized(model_path):
     model, _ = load_model(model_path, quant=QuantConfig(bits=4, group_size=64, embed_bits=6),
                           dtype=mx.bfloat16)

@@ -110,6 +110,8 @@ class QuantConfig:
             raise ValueError(f"unsupported bits={self.bits}")
         if self.group_size not in (32, 64, 128):
             raise ValueError(f"unsupported group_size={self.group_size}")
+        if self.embed_bits is not None and self.embed_bits not in (2, 3, 4, 5, 6, 8):
+            raise ValueError(f"unsupported embed_bits={self.embed_bits}")
 
 
 @dataclass(frozen=True)

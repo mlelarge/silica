@@ -33,6 +33,23 @@ from bench.roofline import byte_budget
 from bench.baseline import measure_peak_bandwidth
 
 
+def _parse_llama_tg(stdout: str) -> float:
+    """Median decode (tg) tok/s from llama-bench JSON. Raises a CLEAR error on
+    non-JSON output, schema drift (missing avg_ts), or no text-generation rows —
+    instead of an opaque JSONDecodeError/KeyError/StatisticsError."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"llama-bench output is not JSON: {stdout[:300]!r}") from e
+    if not isinstance(data, list):
+        raise RuntimeError(f"llama-bench JSON is not a list of rows: {stdout[:300]!r}")
+    tg = [float(r["avg_ts"]) for r in data
+          if isinstance(r, dict) and "avg_ts" in r and int(r.get("n_gen", 0)) > 0]
+    if not tg:
+        raise RuntimeError(f"llama-bench produced no text-generation rows: {stdout[:300]!r}")
+    return statistics.median(tg)
+
+
 def llama_tg_tokps(gguf: str, n_tokens: int, reps: int) -> float:
     """Decode (text-generation) tok/s from llama-bench (its own warmup/reps)."""
     out = subprocess.run(
@@ -40,10 +57,8 @@ def llama_tg_tokps(gguf: str, n_tokens: int, reps: int) -> float:
         capture_output=True, text=True,
     )
     if out.returncode != 0:
-        raise RuntimeError(f"llama-bench failed: {out.stderr[-300:]}")
-    data = json.loads(out.stdout)
-    tg = [float(r["avg_ts"]) for r in data if int(r.get("n_gen", 0)) > 0]
-    return statistics.median(tg)
+        raise RuntimeError(f"llama-bench failed (rc={out.returncode}): {out.stderr[-300:]}")
+    return _parse_llama_tg(out.stdout)
 
 
 def silica_tg_tokps(model, prompt_ids, n_tokens, warmup, runs) -> float:

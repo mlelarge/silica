@@ -73,8 +73,11 @@ def test_gqa_divisibility_enforced():
 
 
 def test_quant_config_validation():
-    QuantConfig(bits=4, group_size=64)         # ok
+    QuantConfig(bits=4, group_size=64, embed_bits=6)   # ok
     with pytest.raises(ValueError):
         QuantConfig(bits=7)
     with pytest.raises(ValueError):
         QuantConfig(group_size=48)
+    with pytest.raises(ValueError):
+        QuantConfig(embed_bits=7)                       # forwarded as MLX bits
+    QuantConfig(embed_bits=None)                        # None is allowed (skip)

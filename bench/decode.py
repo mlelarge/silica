@@ -17,7 +17,7 @@ import time
 
 import mlx.core as mx
 
-from silica.config import BenchConfig, GenConfig
+from silica.config import BenchConfig, GenConfig, QuantConfig
 from silica.weights import load_model
 from silica.generate import generate_step
 from bench.roofline import byte_budget
@@ -40,7 +40,10 @@ def time_decode(model, prompt_ids, n_tokens: int, kv_bits=None) -> float:
 
 def run(model_id: str, bcfg: BenchConfig, n_tokens: int, context_len: int,
         bits: int | None, kv_bits: int | None = None):
-    model, cfg = load_model(model_id, dtype=mx.bfloat16)
+    # Quantize when --bits is set, so the measured model matches the byte budget
+    # charged below (otherwise we'd time an fp16 model but divide by 4-bit bytes).
+    quant = None if bits is None else QuantConfig(bits=bits, group_size=64, embed_bits=6)
+    model, cfg = load_model(model_id, quant=quant, dtype=mx.bfloat16)
     # Decode at the requested context: prefill `context_len` synthetic tokens so
     # the timed steps actually read that much KV. Charging KV bytes at a context
     # the run never reached is what let achieved-BW exceed the chip's peak.

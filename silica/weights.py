@@ -67,16 +67,19 @@ def _selective_predicate(qcfg: QuantConfig):
     def predicate(path: str, module: nn.Module):
         if not hasattr(module, "to_quantized"):
             return False
+        # Enforce the group_size divisibility constraint for EVERY quantizable
+        # module (incl. embed/lm_head); keep fp otherwise. This guard used to sit
+        # AFTER the embed branch, so embed/lm_head bypassed it and could hard-crash
+        # mx.quantize on models whose hidden_size isn't divisible by group_size.
+        w = getattr(module, "weight", None)
+        if w is not None and w.shape[-1] % qcfg.group_size != 0:
+            skipped.append(path)
+            return False
         # Keep embedding / lm_head higher-precision (they are tied on 0.6B).
         if path.endswith("embed_tokens") or path.endswith("lm_head"):
             if qcfg.embed_bits is None:
                 return False
             return {"group_size": qcfg.group_size, "bits": qcfg.embed_bits}
-        # Enforce the group_size divisibility constraint; keep fp otherwise.
-        w = getattr(module, "weight", None)
-        if w is not None and w.shape[-1] % qcfg.group_size != 0:
-            skipped.append(path)
-            return False
         # Stronger recipe: keep quality-sensitive projections at higher precision.
         if qcfg.high_bits_proj and path.endswith(tuple(qcfg.high_bits_proj)):
             return {"group_size": qcfg.group_size, "bits": qcfg.embed_bits or 8}
