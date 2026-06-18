@@ -209,8 +209,10 @@ Re-deriving those kernels would at best reproduce Apple's numbers. Decision:
 ### M4 — Benchmarking & write-up ✅
 - [x] Full roofline report (§6) across quant settings + cross-model scaling →
       [`docs/REPORT.md`](docs/REPORT.md) (with `docs/results-m1.md`, `results-m2-baseline.md`).
-- [x] Comparison vs `mlx-lm` (within ~1.5% at fp16 & 4-bit, `bench/baseline.py`).
-      *Not done:* `llama.cpp` (Metal) cross-engine baseline — documented gap (REPORT §6).
+- [x] Comparison vs `mlx-lm` (within ~1.5% at fp16 & 4-bit, `bench/baseline.py`)
+      AND vs `llama.cpp` (Metal): silica ≈ **0.89×** llama.cpp decode (same model,
+      matched quant; `bench/cross_engine.py`, `docs/results-m4-cross-engine.md`).
+      Speed only — a cross-engine quality (PPL) comparison remains open.
 - [x] **Annotated reading guide / design narrative** (gated deliverable):
       [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md) — the pedagogy artifact that
       justifies the project independent of M3's outcome.

@@ -15,7 +15,8 @@ and quantization**, not GPU scheduling.
 **Docs:** [PLAN.md](PLAN.md) (design + roadmap) · [docs/REPORT.md](docs/REPORT.md)
 (the performance & correctness scoreboard) · [docs/READING_GUIDE.md](docs/READING_GUIDE.md)
 (annotated code tour + lessons learned) · [docs/AUDIT.md](docs/AUDIT.md) (pre-build
-audit) · [docs/results-m1.md](docs/results-m1.md) · [docs/results-m2-baseline.md](docs/results-m2-baseline.md).
+audit) · results: [m1](docs/results-m1.md) · [m2](docs/results-m2-baseline.md) ·
+[m4 cross-engine](docs/results-m4-cross-engine.md) (vs llama.cpp).
 
 ## Layout
 

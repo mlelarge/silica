@@ -92,6 +92,15 @@ Quantization is **selective `mx.quantize` at load**: the body at 4-bit, the tied
 
 The fp16 result shows the **~30% gap to the usable ceiling is REAL and SCALE-INDEPENDENT** — it does not shrink at 4B, so it is **not a small-model artifact**.
 
+**Cross-engine — vs llama.cpp (Metal).** Same Qwen3-0.6B, matched quantization (GGUF Q8_0 ≈ silica 8-bit, Q4_K_M ≈ silica 4-bit; same byte model), `llama-bench` with full Metal offload. Measured under heavy load, so the robust output is the tok/s **ratio** (close-in-time, cancels contention):
+
+| config | silica / llama.cpp |
+|--------|--------------------|
+| 8-bit | **0.90×** |
+| 4-bit | **0.89× / 0.88×** |
+
+**silica ≈ 0.89× llama.cpp — llama.cpp is ~12% faster**, and the ratio is **stable across a 2.5× load swing** (load 19→49), so it is a real engine property, not noise. For a transparent ~1000-line Python/MLX engine vs hand-tuned C++/Metal, an ~12% gap is a strong result — and consistent with silica == mlx-lm, i.e. the entire MLX Python stack sits ~12% behind llama.cpp, most plausibly residual per-token Python/dispatch overhead a compiled generation loop avoids. *Caveat:* this is **speed only** — llama.cpp's Q4_K_M k-quant is generally higher quality than silica's affine 4-bit, so at 4-bit llama.cpp likely wins on both axes until silica adopts a better 4-bit recipe (see `docs/results-m4-cross-engine.md`).
+
 ---
 
 ## 5. Decision — M3 custom kernels gated OUT by evidence
@@ -108,7 +117,7 @@ Re-deriving those kernels would, at best, reproduce Apple's numbers while re-imp
 
 ## 6. Honest limitations
 
-- **No llama.cpp comparison.** A cross-engine baseline against llama.cpp (Metal) was **not run**. The "== mlx-lm" claim is within the MLX ecosystem only.
+- **llama.cpp comparison is speed-only.** The cross-engine baseline (§4) compares decode *throughput*, not quality; llama.cpp's Q4_K_M k-quant is likely higher-quality than silica's affine 4-bit. A like-for-like quality (PPL) comparison across engines was not done.
 - **Absolute % usable was contention-limited.** The test machine carried unavoidable background load on the shared CPU/GPU bus, so absolute "% of usable" figures are **bracketed**, not exact. To get trustworthy numbers under non-stationary contention we **interleaved** the two arms of each A/B and reported the **per-pair ratio** (drift cancels) — this is what rescued the `mx.compile` and silica-vs-mlx-lm comparisons. Cross-model % usable is reported as a **back-to-back achieved-BW ratio anchored on a known-clean value**.
 
 **Measurement lessons (bugs found by RUNNING, not static review):**
