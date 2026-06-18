@@ -65,28 +65,31 @@ near the same ~70% of usable bandwidth once normalized).
 PPL is **deterministic** (the model's logits don't depend on machine load), so
 unlike the speed numbers these are clean and reproducible. Corpus:
 `bench/data/corpus_large.txt` (Alice in Wonderland, Gutenberg #11; 3520 Qwen3
-tokens). Absolute PPL differs between silica's `eval_ppl` (non-overlapping
-windows) and `llama-perplexity` (sliding context, 6×512-ctx chunks), so the fair
-cross-engine metric is **each engine's 4-bit degradation vs its own ~lossless
-8-bit**.
+tokens). Both engines now use **sliding-window fixed-context PPL** (silica's
+`eval_ppl` was upgraded from non-overlapping windows; `llama-perplexity` uses
+512-ctx chunks), so the **absolute** PPLs are directly comparable — and they
+agree closely (silica fp16 **22.00** vs llama.cpp Q8_0 **21.20**), which validates
+both implementations. The headline metric remains each engine's 4-bit degradation
+vs its own ~lossless 8-bit.
 
 | engine / recipe | PPL | Δ vs 8-bit |
 |---|---|---|
-| silica 8-bit/g64 | 24.84 | — |
-| silica 4-bit/g64 *(current default)* | 29.06 | **+17.0%** |
-| silica 4-bit/g32 | 27.15 | **+9.3%** |
-| silica 4-bit/g32 +`down_proj`+`o_proj` protected | 26.98 | +8.6% |
+| silica fp16 | 22.00 | — |
+| silica 8-bit/g64 | 22.05 | +0.2% |
+| silica 4-bit/g64 *(default)* | 25.96 | **+17.8%** |
+| silica 4-bit/g32 | 23.80 | **+8.0%** |
+| silica 4-bit/g32 +`down_proj`+`o_proj` protected | 23.79 | +7.9% |
 | llama.cpp Q8_0 | 21.20 | — |
 | llama.cpp **Q4_K_M** | 22.51 | **+6.2%** |
 
 **Findings**
 
 1. **llama.cpp's Q4_K_M (+6.2%) is higher quality than silica's default 4-bit/g64
-   (+17%)** — confirming the M4 caveat: the k-quant scheme is better.
+   (+17.8%)** — confirming the M4 caveat: the k-quant scheme is better.
 2. **The stronger recipe closes most of the gap.** `group_size` is the dominant
-   lever (+17% → +9.3%); protecting `down_proj`/`o_proj` adds <1 pt (+8.6%) — layer
+   lever (+17.8% → +8.0%); protecting `down_proj`/`o_proj` adds <1 pt (+7.9%) — layer
    protection barely matters here, finer grouping is what counts.
-3. **Residual ~2–3 pts is structural.** MLX offers only *affine* quantization;
+3. **Residual ~2 pts is structural.** MLX offers only *affine* quantization;
    llama.cpp's k-quants use super-blocks with separate block scales+mins, which
    are more sample-efficient. silica can trade *speed* for quality with g32
    (4-bit/g32 = 5.0 effective bpw vs g64's 4.5 → ~11% more weight bytes, ~11%

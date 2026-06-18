@@ -29,3 +29,9 @@ def test_parse_no_tg_rows_raises():
 def test_parse_missing_avg_ts_key_raises():
     with pytest.raises(RuntimeError):
         _parse_llama_tg('[{"n_gen":128}]')                # schema drift -> no usable rows
+
+
+def test_measure_peak_bandwidth_returns_positive():
+    """Smoke test for the median-per-iteration peak-bandwidth measurement (#10)."""
+    from bench.baseline import measure_peak_bandwidth
+    assert measure_peak_bandwidth(nbytes=50_000_000, iters=5) > 0

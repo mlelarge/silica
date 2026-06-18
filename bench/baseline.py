@@ -29,15 +29,24 @@ from bench.roofline import byte_budget
 
 
 def measure_peak_bandwidth(nbytes: int = 1_500_000_000, iters: int = 30) -> float:
-    """Empirical GPU read bandwidth (GB/s) via a large reduction."""
+    """Empirical GPU read bandwidth (GB/s) via a large reduction.
+
+    Returns the MEDIAN of per-iteration rates (not a single burst mean), so one
+    scheduling hiccup can't skew the number — important because a quietness gate
+    is built on top of it.
+    """
     x = mx.ones((nbytes // 2,), dtype=mx.float16)
     mx.eval(x)
     for _ in range(3):
-        mx.eval(mx.sum(x))
-    t0 = time.perf_counter()
+        mx.eval(mx.sum(x))                       # warmup
+    rates = []
     for _ in range(iters):
+        t0 = time.perf_counter()
         mx.eval(mx.sum(x))
-    return iters * nbytes / (time.perf_counter() - t0) / 1e9
+        dt = time.perf_counter() - t0
+        if dt > 0:
+            rates.append(nbytes / dt / 1e9)
+    return statistics.median(rates)
 
 
 def _timed_decode(model, cache, prompt_ids, n_tokens: int) -> float:

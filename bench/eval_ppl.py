@@ -30,27 +30,47 @@ def load_corpus(path: str | Path = DEFAULT_CORPUS) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def token_nll(model, ids: list[int], max_seq: int = 1024) -> tuple[float, int]:
-    """Return (sum negative-log-likelihood, num scored tokens)."""
+def token_nll(model, ids: list[int], max_seq: int = 1024, stride: int | None = None
+              ) -> tuple[float, int]:
+    """Return (sum negative-log-likelihood, num scored tokens).
+
+    Sliding-window fixed-context PPL (the standard HF/llama.cpp recipe): windows
+    of `max_seq` overlap by `max_seq - stride`, and within each window only the
+    NEW tail tokens are scored — so every scored token (after the first window)
+    carries up to `max_seq - stride` tokens of left context, instead of the old
+    non-overlapping windowing where each chunk's first token had ~no context and
+    inflated the NLL. With overlap (the default stride = max_seq//2 < max_seq)
+    every token after position 0 is scored exactly once (n == len(ids) - 1);
+    stride == max_seq degenerates to non-overlapping windows and leaves the
+    boundary tokens unscored.
+    """
+    if stride is None:
+        stride = max(1, max_seq // 2)
     total, n = 0.0, 0
-    for start in range(0, len(ids) - 1, max_seq):
-        chunk = ids[start:start + max_seq + 1]
-        if len(chunk) < 2:
+    prev_end = 0                                  # last absolute target pos scored
+    for begin in range(0, len(ids) - 1, stride):
+        end = min(begin + max_seq, len(ids))
+        window = ids[begin:end]
+        if len(window) < 2:
             break
-        x = mx.array(chunk[:-1])[None]
-        y = mx.array(chunk[1:])
-        logits = model(x)[0].astype(mx.float32)                 # (L, V)
+        first = max(0, prev_end - begin)          # local index of first new target
+        logits = model(mx.array(window[:-1])[None])[0].astype(mx.float32)  # (L, V)
         logp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
-        ll = mx.take_along_axis(logp, y[:, None], axis=-1)[:, 0]  # (L,)
+        y = mx.array(window[1:][first:])
+        ll = mx.take_along_axis(logp[first:], y[:, None], axis=-1)[:, 0]
         mx.eval(ll)
         total += float((-ll).sum().item())
         n += int(y.size)
+        prev_end = end - 1
+        if end == len(ids):
+            break
     return total, n
 
 
-def perplexity(model, tokenizer, text: str, max_seq: int = 1024) -> tuple[float, int]:
+def perplexity(model, tokenizer, text: str, max_seq: int = 1024,
+               stride: int | None = None) -> tuple[float, int]:
     ids = tokenizer.encode(text)
-    total, n = token_nll(model, ids, max_seq)
+    total, n = token_nll(model, ids, max_seq, stride)
     return math.exp(total / n), n
 
 

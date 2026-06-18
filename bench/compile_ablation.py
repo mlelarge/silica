@@ -77,12 +77,13 @@ def main():
     args = ap.parse_args()
 
     load1 = os.getloadavg()[0]
-    c1, c2 = measure_peak_bandwidth(), measure_peak_bandwidth()
-    usable = min(c1, c2)
-    spread = abs(c1 - c2) / max(c1, c2)
+    ceilings = [measure_peak_bandwidth() for _ in range(3)]   # >=3 samples, median-based
+    usable = statistics.median(ceilings)
+    spread = (max(ceilings) - min(ceilings)) / max(ceilings)
     expected = 0.90 * args.spec_bandwidth
     quiet = spread <= 0.06 and usable >= 0.85 * expected and load1 <= 2.0
-    print(f"usable BW: {c1:.0f}/{c2:.0f} GB/s (spread {spread*100:.0f}%)  load1: {load1:.1f}  "
+    print(f"usable BW: {usable:.0f} GB/s (spread {spread*100:.0f}% over "
+          f"{len(ceilings)} samples)  load1: {load1:.1f}  "
           f"-> {'QUIET (absolutes trustworthy)' if quiet else 'CONTENDED (trust only the ratio)'}")
     if not quiet and not args.force:
         raise SystemExit("not quiet — re-run idle, or --force (paired ratio is still valid).")
