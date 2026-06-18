@@ -143,6 +143,53 @@ def make_cache(
             for _ in range(n_layers)]
 
 
+class PrefixCache:
+    """Single-stream prefix (prompt) cache — the tractable slice of SGLang's
+    radix cache for batch=1. Snapshots the per-layer KV for a token sequence and,
+    on the next call, reuses the longest shared prefix (restoring the cache to
+    that offset) so only the suffix is prefilled.
+
+    Correct because causal attention makes a shared prefix's KV position-identical:
+    token i's K/V depend only on tokens 0..i, so reusing them and prefilling the
+    suffix at the right offset is bit-equivalent to a full prefill. (It exercises
+    the offset>0 path of `causal_additive_mask`.) fp KV only — quantized KV is not
+    supported. Holds the full KV for the cached sequence, so memory grows with
+    conversation length (fine for one stream).
+    """
+
+    def __init__(self):
+        self.tokens: list[int] = []
+        self.keys = None       # list[mx.array] per layer, (B, n_kv, T, head_dim)
+        self.values = None
+
+    def reuse_len(self, prompt_ids) -> int:
+        """Longest common prefix with the cached tokens, leaving >=1 to prefill."""
+        n = 0
+        for a, b in zip(self.tokens, prompt_ids):
+            if a != b:
+                break
+            n += 1
+        return max(0, min(n, len(prompt_ids) - 1))
+
+    def restore(self, n_layers: int, reuse: int, step: int = 256) -> list[KVCache]:
+        """Fresh per-layer KVCaches pre-populated with the first `reuse` tokens."""
+        caches = [KVCache(step=step) for _ in range(n_layers)]
+        if reuse > 0 and self.keys is not None:
+            for c, k, v in zip(caches, self.keys, self.values):
+                c.keys = k[..., :reuse, :]
+                c.values = v[..., :reuse, :]
+                c.offset = reuse
+        return caches
+
+    def update(self, tokens, caches) -> None:
+        """Snapshot the KV covering `caches`' valid range and the matching tokens."""
+        offset = caches[0].offset
+        self.tokens = list(tokens)[:offset]
+        self.keys = [c.keys[..., :offset, :] for c in caches]
+        self.values = [c.values[..., :offset, :] for c in caches]
+        mx.eval(*self.keys, *self.values)
+
+
 class RotatingKVCache:
     """Sliding-window cache with attention sinks (StreamingLLM).
 

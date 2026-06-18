@@ -43,7 +43,7 @@ silica/
     common.py     shared layers: MLP, DecoderLayer, Decoder, CausalLM, mask, build_rope
     qwen3.py      Qwen3 (per-head QK-Norm)        llama.py   Llama (no QK-Norm, llama3 RoPE)
     __init__.py   REGISTRY: HF `architectures` field -> model class
-  cache.py        growing KV cache (+ quantized); quant|rotating are alternatives
+  cache.py        growing + quantized KV cache; PrefixCache (single-stream prefix reuse)
   attention.py    sdpa() — fp -> mx.fast SDPA; quantized KV -> quantized_matmul path
   sample.py       greedy + temp/top-k/top-p/min-p (per-sampler RNG key, no global seed)
   detokenize.py   incremental UTF-8-safe BPE detok + stop sequences + flush

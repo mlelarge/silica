@@ -222,7 +222,11 @@ Re-deriving those kernels would at best reproduce Apple's numbers. Decision:
 
 ### Later (deferred, not abandoned)
 - CPU backend (Accelerate/AMX + NEON) behind the same op interface.
-- Prefix/radix KV cache (system-prompt + multi-turn reuse).
+- ~~Prefix KV cache (system-prompt + multi-turn reuse)~~ — **done** for the
+  single stream: `PrefixCache` reuses the longest shared prefix and prefills only
+  the suffix (`cache.py`, `generate(..., prefix_cache=)`; parity-tested). The full
+  *radix* tree (cross-request prefix sharing) stays deferred — it's a multi-request
+  serving feature, out of scope at batch=1.
 - Speculative decoding (draft + target both in MLX).
 - Optional thin OpenAI-compatible server + few-stream batching (the bridge to
   the out-of-scope continuous batching).

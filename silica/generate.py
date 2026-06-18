@@ -54,36 +54,55 @@ def generate_step(
     prompt_ids: list[int],
     cfg: GenConfig,
     eos_ids: tuple[int, ...],
+    prefix_cache=None,
 ) -> Iterator[int]:
-    """Yield generated token ids one at a time (greedy/sampled)."""
+    """Yield generated token ids one at a time (greedy/sampled).
+
+    With a `PrefixCache` (fp KV only), the longest shared prefix is reused and
+    only the suffix is prefilled; the cache is snapshotted afterwards (in the
+    `finally`, so an early stop still records it)."""
     if cfg.max_tokens <= 0:                    # nothing requested -> no prefill, no tokens
         return
     sampler = make_sampler(cfg)
-    cache = make_cache(len(model.layers))     # fp; quantized after prefill if kv_bits
+    n_layers = len(model.layers)
+    use_prefix = prefix_cache is not None and cfg.kv_bits is None
+    if use_prefix:
+        reuse = prefix_cache.reuse_len(prompt_ids)
+        cache = prefix_cache.restore(n_layers, reuse)
+        prefill_ids = prompt_ids[reuse:]      # only the un-cached suffix
+    else:
+        cache = make_cache(n_layers)          # fp; quantized after prefill if kv_bits
+        prefill_ids = prompt_ids
 
     def step(tokens: mx.array) -> mx.array:
         logits = model(tokens, cache=cache)[:, -1, :]
         return sampler(logits)
 
-    y = step(mx.array(prompt_ids)[None])      # prefill -> first token, shape (1,)
-    maybe_quantize_kv_cache(cache, cfg)
-    mx.async_eval(y)
+    generated: list[int] = []
+    try:
+        y = step(mx.array(prefill_ids)[None])  # prefill (suffix) -> first token
+        maybe_quantize_kv_cache(cache, cfg)
+        mx.async_eval(y)
 
-    n = 0
-    while True:
-        if n + 1 != cfg.max_tokens:
-            next_y = step(y.reshape(1, 1))    # enqueue step t+1 ...
-            maybe_quantize_kv_cache(cache, cfg)
-            mx.async_eval(next_y)
-        if n == 0:
-            mx.eval(y)
+        n = 0
+        while True:
+            if n + 1 != cfg.max_tokens:
+                next_y = step(y.reshape(1, 1))  # enqueue step t+1 ...
+                maybe_quantize_kv_cache(cache, cfg)
+                mx.async_eval(next_y)
+            if n == 0:
+                mx.eval(y)
 
-        token = int(y.item())                 # ... then read token t
-        yield token
-        n += 1
-        if token in eos_ids or n >= cfg.max_tokens:
-            break
-        y = next_y
+            token = int(y.item())              # ... then read token t
+            generated.append(token)
+            yield token
+            n += 1
+            if token in eos_ids or n >= cfg.max_tokens:
+                break
+            y = next_y
+    finally:
+        if use_prefix:
+            prefix_cache.update(prompt_ids + generated, cache)
 
 
 def generate(
@@ -93,8 +112,12 @@ def generate(
     cfg: GenConfig | None = None,
     *,
     stream: bool = True,
+    prefix_cache=None,
 ) -> str:
-    """Generate text for `prompt`. Returns the full decoded string."""
+    """Generate text for `prompt`. Returns the full decoded string.
+
+    Pass a `PrefixCache` across calls to reuse a shared prompt prefix (e.g.
+    multi-turn chat) instead of re-prefilling it every time."""
     cfg = cfg or GenConfig()
     mcfg: ModelConfig = model.config
     eos_ids = set(mcfg.eos_token_ids)
@@ -105,16 +128,20 @@ def generate(
     detok = IncrementalDetokenizer(tokenizer, stop=cfg.stop)
 
     out = []
-    for token in generate_step(model, prompt_ids, cfg, tuple(eos_ids)):
-        if token in eos_ids:
-            break
-        segment = detok.add_token(token)
-        if segment:
-            out.append(segment)
-            if stream:
-                print(segment, end="", flush=True)
-        if detok.finished:
-            break
+    gen = generate_step(model, prompt_ids, cfg, tuple(eos_ids), prefix_cache)
+    try:
+        for token in gen:
+            if token in eos_ids:
+                break
+            segment = detok.add_token(token)
+            if segment:
+                out.append(segment)
+                if stream:
+                    print(segment, end="", flush=True)
+            if detok.finished:
+                break
+    finally:
+        gen.close()            # run generate_step's finally -> prefix-cache snapshot
     flush = detok.finalize()   # emit held-back window + any trailing partial char
     if flush:
         out.append(flush)
