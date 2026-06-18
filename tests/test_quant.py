@@ -43,6 +43,21 @@ def test_selective_quant_keeps_embed_higher_precision(quant_models):
 
 
 @pytest.mark.device
+def test_stronger_recipe_protects_sensitive_proj(parity_model_id):
+    """high_bits_proj keeps protected projections (down_proj) at embed_bits while
+    the rest of the body stays at the base bits (the stronger 4-bit recipe)."""
+    try:
+        path = resolve_model_path(parity_model_id)
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"checkpoint unavailable: {e}")
+    model, _ = load_model(path, quant=QuantConfig(
+        bits=4, group_size=32, embed_bits=6, high_bits_proj=("down_proj",)), dtype=mx.bfloat16)
+    mlp = model.model.layers[0].mlp
+    assert getattr(mlp.down_proj, "bits", None) == 6, "down_proj must be protected"
+    assert getattr(mlp.gate_proj, "bits", None) == 4, "gate_proj stays at base bits"
+
+
+@pytest.mark.device
 def test_no_layers_skipped_for_qwen3_06b(quant_models):
     """All body projections divide group_size=64, so none fall back to fp."""
     _, q4, _ = quant_models

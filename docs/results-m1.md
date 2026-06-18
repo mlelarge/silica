@@ -30,8 +30,11 @@ Reproduce with `uv run silica-ppl --ablate`.
 
 ## Caveats / next
 
-- Tiny corpus → noisy absolute PPL. Swap in a larger pinned corpus (or a
-  WikiText slice) before treating absolute numbers as anything but directional.
+- Tiny corpus → noisy absolute PPL. On a larger 3520-token corpus
+  (`bench/data/corpus_large.txt`) the 4-bit/g64 hit is **+17%, not +44%** — the
+  378-token corpus here inflated it. See `docs/results-m4-cross-engine.md` for the
+  larger-corpus numbers, the cross-engine quality comparison, and the stronger
+  g32 recipe (+9.3%).
 - Pair this with the M2 tok/s + achieved-bandwidth-% table so the quality cost
   sits next to the speed benefit (the byte model already accounts for the
   scale/bias overhead that g32 doubles).

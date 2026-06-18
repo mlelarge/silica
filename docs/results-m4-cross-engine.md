@@ -57,3 +57,49 @@ near the same ~70% of usable bandwidth once normalized).
   re-run would firm the absolutes but the ratio is already stable.
 - **Default llama.cpp config** (its out-of-box Metal threads/batch); no attempt to
   tune either engine beyond defaults.
+
+---
+
+## Quality (perplexity) — cross-engine, + a stronger silica 4-bit recipe
+
+PPL is **deterministic** (the model's logits don't depend on machine load), so
+unlike the speed numbers these are clean and reproducible. Corpus:
+`bench/data/corpus_large.txt` (Alice in Wonderland, Gutenberg #11; 3520 Qwen3
+tokens). Absolute PPL differs between silica's `eval_ppl` (non-overlapping
+windows) and `llama-perplexity` (sliding context, 6×512-ctx chunks), so the fair
+cross-engine metric is **each engine's 4-bit degradation vs its own ~lossless
+8-bit**.
+
+| engine / recipe | PPL | Δ vs 8-bit |
+|---|---|---|
+| silica 8-bit/g64 | 24.84 | — |
+| silica 4-bit/g64 *(current default)* | 29.06 | **+17.0%** |
+| silica 4-bit/g32 | 27.15 | **+9.3%** |
+| silica 4-bit/g32 +`down_proj`+`o_proj` protected | 26.98 | +8.6% |
+| llama.cpp Q8_0 | 21.20 | — |
+| llama.cpp **Q4_K_M** | 22.51 | **+6.2%** |
+
+**Findings**
+
+1. **llama.cpp's Q4_K_M (+6.2%) is higher quality than silica's default 4-bit/g64
+   (+17%)** — confirming the M4 caveat: the k-quant scheme is better.
+2. **The stronger recipe closes most of the gap.** `group_size` is the dominant
+   lever (+17% → +9.3%); protecting `down_proj`/`o_proj` adds <1 pt (+8.6%) — layer
+   protection barely matters here, finer grouping is what counts.
+3. **Residual ~2–3 pts is structural.** MLX offers only *affine* quantization;
+   llama.cpp's k-quants use super-blocks with separate block scales+mins, which
+   are more sample-efficient. silica can trade *speed* for quality with g32
+   (4-bit/g32 = 5.0 effective bpw vs g64's 4.5 → ~11% more weight bytes, ~11%
+   slower decode), but **cannot match Q4_K_M on both quality and bytes** — at
+   4-bit, Q4_K_M is Pareto-superior. Matching it would require implementing
+   k-quant kernels in MLX (M3-level custom-kernel work, out of scope).
+
+**Recommendation:** use **4-bit/g32** as silica's quality-first 4-bit setting
+(close to Q4_K_M, ~11% slower); g64 stays the speed-first option. The default
+`QuantConfig` keeps g64; pass `group_size=32` (and optionally
+`high_bits_proj=("down_proj","o_proj")`) for quality. The `high_bits_proj` knob
+is wired through `QuantConfig` → `weights._selective_predicate`.
+
+*(Aside: on this properly-sized corpus the 4-bit/g64 hit is +17%, not the +44%
+reported in `results-m1.md` — that figure was inflated by the 378-token M1
+corpus. The relative ordering and the g32 win are unchanged.)*

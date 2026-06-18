@@ -77,6 +77,9 @@ def _selective_predicate(qcfg: QuantConfig):
         if w is not None and w.shape[-1] % qcfg.group_size != 0:
             skipped.append(path)
             return False
+        # Stronger recipe: keep quality-sensitive projections at higher precision.
+        if qcfg.high_bits_proj and path.endswith(tuple(qcfg.high_bits_proj)):
+            return {"group_size": qcfg.group_size, "bits": qcfg.embed_bits or 8}
         return True
 
     predicate.skipped = skipped  # type: ignore[attr-defined]

@@ -99,6 +99,11 @@ class QuantConfig:
     # bits to use for the embedding / lm_head (None == leave unquantized).
     embed_bits: int | None = 6
     quantize_norms: bool = False    # RMSNorm / RoPE stay fp
+    # Stronger-recipe knob: module-path suffixes to keep at higher precision
+    # (`embed_bits`), e.g. ("down_proj",) — the quality-sensitive MLP output.
+    # MLX has no k-quants, so finer group_size + protecting sensitive layers is
+    # how silica narrows the quality gap to llama.cpp's Q4_K_M.
+    high_bits_proj: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.bits not in (2, 3, 4, 5, 6, 8):
