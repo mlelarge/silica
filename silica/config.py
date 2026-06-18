@@ -122,7 +122,9 @@ class GenConfig:
     top_p: float = 1.0
     min_p: float = 0.0
     repetition_penalty: float = 1.0
-    seed: int | None = 0
+    # None -> fresh randomness each generation (default stream advances);
+    # an int makes a single run reproducible WITHOUT touching global RNG state.
+    seed: int | None = None
     stop: tuple[str, ...] = ()      # extra string stop-sequences
     # apply the model's chat template before prefill (ChatML for Qwen3).
     use_chat_template: bool = True

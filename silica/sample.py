@@ -17,11 +17,17 @@ from .config import GenConfig
 
 
 def make_sampler(cfg: GenConfig):
-    """Return `sampler(logits) -> token_ids` for logits shaped (B, vocab)."""
-    if cfg.seed is not None:
-        mx.random.seed(cfg.seed)
+    """Return `sampler(logits) -> token_ids` for logits shaped (B, vocab).
 
+    RNG is per-sampler, not global: we hold an `mx.random.key` derived from
+    `cfg.seed` and split it each step, instead of calling the process-global
+    `mx.random.seed`. So an explicit seed makes THIS run reproducible without
+    clobbering global state, and `seed=None` draws from the default stream (which
+    advances naturally — two generations differ). Seeding globally per call was a
+    bug: with the old `seed=0` default every sampled generation was identical.
+    """
     greedy = cfg.temperature <= 0.0
+    key = [mx.random.key(cfg.seed) if cfg.seed is not None else None]
 
     def sampler(logits: mx.array) -> mx.array:
         if greedy:
@@ -36,7 +42,10 @@ def make_sampler(cfg: GenConfig):
         if cfg.top_p and cfg.top_p < 1.0:
             logits = _top_p(logits, cfg.top_p)
 
-        return mx.random.categorical(logits, axis=-1)
+        if key[0] is None:
+            return mx.random.categorical(logits, axis=-1)
+        key[0], sub = mx.random.split(key[0])
+        return mx.random.categorical(logits, axis=-1, key=sub)
 
     return sampler
 

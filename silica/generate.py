@@ -113,6 +113,11 @@ def generate(
                 print(segment, end="", flush=True)
         if detok.finished:
             break
+    flush = detok.finalize()   # emit held-back window + any trailing partial char
+    if flush:
+        out.append(flush)
+        if stream:
+            print(flush, end="", flush=True)
     if stream:
         print()
     return "".join(out)
