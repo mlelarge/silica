@@ -58,11 +58,6 @@ class KVCache:
         self.offset = need
         return self.keys[..., :need, :], self.values[..., :need, :]
 
-    @property
-    def state(self):
-        """For mx.compile inputs=/outputs= capture (M2)."""
-        return self.keys, self.values, self.offset
-
     def to_quantized(self, group_size: int = 64, bits: int = 8) -> "QuantizedKVCache":
         """Convert the current fp cache into a quantized one (for quantized_kv_start)."""
         q = QuantizedKVCache(group_size=group_size, bits=bits)
@@ -101,8 +96,8 @@ class QuantizedKVCache:
 
         if self.keys is None or (prev + n_new) > self.keys[0].shape[-2]:
             el_per_int = 8 * mx.uint32.size // self.bits
-            n_steps = (self.step + n_new - 1) // self.step * self.step
-            shape = (b, n_kv, n_steps)
+            new_len = (self.step + n_new - 1) // self.step * self.step  # padded total length
+            shape = (b, n_kv, new_len)
 
             def init_quant(dim):
                 return (

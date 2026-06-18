@@ -33,16 +33,16 @@ def _decode_forward(model, token, offset, k_cache, v_cache):
     for i, layer in enumerate(model.model.layers):
         a = layer.self_attn
         x = layer.input_layernorm(h)
-        b, l, _ = x.shape
-        q = a.q_norm(a.q_proj(x).reshape(b, l, a.n_heads, a.head_dim)).transpose(0, 2, 1, 3)
-        k = a.k_norm(a.k_proj(x).reshape(b, l, a.n_kv_heads, a.head_dim)).transpose(0, 2, 1, 3)
-        v = a.v_proj(x).reshape(b, l, a.n_kv_heads, a.head_dim).transpose(0, 2, 1, 3)
+        b, seq, _ = x.shape
+        q = a.q_norm(a.q_proj(x).reshape(b, seq, a.n_heads, a.head_dim)).transpose(0, 2, 1, 3)
+        k = a.k_norm(a.k_proj(x).reshape(b, seq, a.n_kv_heads, a.head_dim)).transpose(0, 2, 1, 3)
+        v = a.v_proj(x).reshape(b, seq, a.n_kv_heads, a.head_dim).transpose(0, 2, 1, 3)
         q = a.rope(q, offset=offset)
         k = a.rope(k, offset=offset)
         kc = mx.concatenate([k_cache[i], k], axis=2)
         vc = mx.concatenate([v_cache[i], v], axis=2)
         o = mx.fast.scaled_dot_product_attention(q, kc, vc, scale=a.scale, mask=None)
-        h = h + a.o_proj(o.transpose(0, 2, 1, 3).reshape(b, l, -1))
+        h = h + a.o_proj(o.transpose(0, 2, 1, 3).reshape(b, seq, -1))
         h = h + layer.mlp(layer.post_attention_layernorm(h))
         new_k.append(kc)
         new_v.append(vc)

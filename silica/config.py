@@ -47,12 +47,8 @@ class ModelConfig:
     model_type: str = "qwen3"
 
     def __post_init__(self) -> None:
-        # Catch the classic Qwen3 head_dim trap early and loudly.
-        derived = self.hidden_size // self.num_attention_heads
-        if self.head_dim != derived:
-            # Not an error — Qwen3 intentionally decouples these — but make the
-            # divergence visible to anyone reading a stack trace.
-            pass
+        # head_dim is intentionally decoupled from hidden_size//num_heads on Qwen3
+        # (it is a required field for exactly that reason — see `head_dim`).
         if self.num_attention_heads % self.num_key_value_heads != 0:
             raise ValueError(
                 f"num_attention_heads ({self.num_attention_heads}) must be a "
@@ -97,8 +93,8 @@ class QuantConfig:
     bits: int = 4
     group_size: int = 64            # 64 default; {32, 64, 128} as ablation knobs
     # bits to use for the embedding / lm_head (None == leave unquantized).
+    # (Norms/RoPE are always left fp — nn.quantize only touches Linear/Embedding.)
     embed_bits: int | None = 6
-    quantize_norms: bool = False    # RMSNorm / RoPE stay fp
     # Stronger-recipe knob: module-path suffixes to keep at higher precision
     # (`embed_bits`), e.g. ("down_proj",) — the quality-sensitive MLP output.
     # MLX has no k-quants, so finer group_size + protecting sensitive layers is

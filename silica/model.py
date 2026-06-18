@@ -64,17 +64,17 @@ class Attention(nn.Module):
         self.rope = nn.RoPE(self.head_dim, traditional=False, base=cfg.rope_theta)
 
     def __call__(self, x, mask=None, cache: KVCache | None = None):
-        b, l, _ = x.shape
+        b, seq, _ = x.shape
 
-        q = self.q_proj(x).reshape(b, l, self.n_heads, self.head_dim)
-        k = self.k_proj(x).reshape(b, l, self.n_kv_heads, self.head_dim)
-        v = self.v_proj(x).reshape(b, l, self.n_kv_heads, self.head_dim)
+        q = self.q_proj(x).reshape(b, seq, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(b, seq, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(b, seq, self.n_kv_heads, self.head_dim)
 
         # QK-norm per head (normalizes over the last dim == head_dim) BEFORE RoPE.
         q = self.q_norm(q)
         k = self.k_norm(k)
 
-        # -> (b, n_heads, l, head_dim) for RoPE + SDPA
+        # -> (b, n_heads, seq, head_dim) for RoPE + SDPA
         q = q.transpose(0, 2, 1, 3)
         k = k.transpose(0, 2, 1, 3)
         v = v.transpose(0, 2, 1, 3)
@@ -87,7 +87,7 @@ class Attention(nn.Module):
 
         # fp KV -> mx.fast SDPA; quantized KV -> manual quantized_matmul path.
         out = sdpa(q, k, v, scale=self.scale, mask=mask, cache=cache)
-        out = out.transpose(0, 2, 1, 3).reshape(b, l, -1)
+        out = out.transpose(0, 2, 1, 3).reshape(b, seq, -1)
         return self.o_proj(out)
 
 

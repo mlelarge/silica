@@ -26,8 +26,7 @@ def test_quantized_weights_smaller_than_fp16():
 
 def test_affine_overhead_above_naive_half():
     # 4-bit should be MORE than params*0.5 bytes because of per-group scale+bias.
-    cfg = ModelConfig.from_dict(QWEN3_0_6B)
-    from bench.roofline import linear_param_count, _affine_bits_per_weight
+    from bench.roofline import _affine_bits_per_weight
     bpw = _affine_bits_per_weight(4, 64)
     assert 4.4 < bpw < 4.6  # ~4.5 effective bits/weight, not 4.0
 

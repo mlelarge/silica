@@ -23,7 +23,7 @@ mx = pytest.importorskip("mlx.core")
 mlx_lm = pytest.importorskip("mlx_lm")
 
 from silica.weights import load_model, resolve_model_path
-from silica.generate import load_tokenizer, generate, _encode_prompt
+from silica.generate import load_tokenizer, generate
 from silica.config import GenConfig
 
 PROMPTS = [

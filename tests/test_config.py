@@ -67,6 +67,12 @@ def test_from_dict_fills_missing_head_dim():
     assert cfg.head_dim == 64  # last-resort derivation when absent from config
 
 
+def test_from_dict_missing_required_key_raises():
+    bad = {k: v for k, v in QWEN3_0_6B.items() if k != "num_hidden_layers"}
+    with pytest.raises((KeyError, TypeError)):     # fails fast rather than defaulting
+        ModelConfig.from_dict(bad)
+
+
 def test_gqa_divisibility_enforced():
     with pytest.raises(ValueError):
         ModelConfig.from_dict({**QWEN3_0_6B, "num_key_value_heads": 7})

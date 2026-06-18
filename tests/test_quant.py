@@ -170,3 +170,10 @@ def test_quantized_kv_4bit_generates_clean_text(quant_models):
                    GenConfig(max_tokens=16, temperature=0.0, kv_bits=4, kv_group_size=32),
                    stream=False)
     assert out.strip() and "�" not in out
+
+
+@pytest.mark.device
+def test_generate_max_tokens_zero_is_empty(quant_models):
+    """max_tokens<=0 must produce no tokens (no prefill, empty string)."""
+    fp16, _, tok = quant_models
+    assert generate(fp16, tok, "anything", GenConfig(max_tokens=0), stream=False) == ""

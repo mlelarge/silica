@@ -49,3 +49,8 @@ markers = ["device: requires MLX + a Qwen3 checkpoint (M0 parity gate)"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+# tests call pytest.importorskip("mlx.core") before importing silica, so imports
+# legitimately follow that guard.
+"tests/*" = ["E402"]

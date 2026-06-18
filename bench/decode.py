@@ -23,8 +23,8 @@ from silica.generate import generate_step
 from bench.roofline import byte_budget
 
 
-def time_decode(model, prompt_ids, n_tokens: int, kv_bits=None) -> float:
-    """Return seconds to decode `n_tokens` tokens (prefill excluded from rate)."""
+def time_decode(model, prompt_ids, n_tokens: int, kv_bits=None) -> tuple[float, int]:
+    """Return (seconds, tokens_decoded) for the decode (prefill excluded)."""
     cfg = GenConfig(max_tokens=n_tokens, temperature=0.0, kv_bits=kv_bits)
     eos = tuple()  # ignore EOS so we always measure exactly n_tokens
     it = generate_step(model, prompt_ids, cfg, eos)

@@ -56,6 +56,8 @@ def generate_step(
     eos_ids: tuple[int, ...],
 ) -> Iterator[int]:
     """Yield generated token ids one at a time (greedy/sampled)."""
+    if cfg.max_tokens <= 0:                    # nothing requested -> no prefill, no tokens
+        return
     sampler = make_sampler(cfg)
     cache = make_cache(len(model.layers))     # fp; quantized after prefill if kv_bits
 
