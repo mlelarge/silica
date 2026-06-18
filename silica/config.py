@@ -48,6 +48,12 @@ class ModelConfig:
     # HF `architectures` field -> selects the silica model class (the registry).
     architectures: tuple[str, ...] = ()
 
+    # --- Mixture-of-Experts (0 experts == dense) ---
+    num_experts: int = 0
+    num_experts_per_tok: int = 0
+    norm_topk_prob: bool = False
+    moe_intermediate_size: int | None = None   # per-expert size (falls back to intermediate_size)
+
     def __post_init__(self) -> None:
         # head_dim is intentionally decoupled from hidden_size//num_heads on Qwen3
         # (it is a required field for exactly that reason — see `head_dim`).
@@ -61,6 +67,15 @@ class ModelConfig:
     def n_rep(self) -> int:
         """GQA repeat factor (query heads per kv head)."""
         return self.num_attention_heads // self.num_key_value_heads
+
+    @property
+    def is_moe(self) -> bool:
+        return self.num_experts > 0
+
+    @property
+    def expert_intermediate_size(self) -> int:
+        """Per-expert MLP size (Qwen3-MoE uses a separate `moe_intermediate_size`)."""
+        return self.moe_intermediate_size or self.intermediate_size
 
     @property
     def eos_token_ids(self) -> tuple[int, ...]:

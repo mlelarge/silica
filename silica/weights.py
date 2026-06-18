@@ -80,6 +80,9 @@ def _selective_predicate(qcfg: QuantConfig):
             if qcfg.embed_bits is None:
                 return False
             return {"group_size": qcfg.group_size, "bits": qcfg.embed_bits}
+        # Keep the MoE router (`mlp.gate`) in fp — tiny and routing-sensitive.
+        if path.endswith("mlp.gate"):
+            return False
         # Stronger recipe: keep quality-sensitive projections at higher precision.
         if qcfg.high_bits_proj and path.endswith(tuple(qcfg.high_bits_proj)):
             return {"group_size": qcfg.group_size, "bits": qcfg.embed_bits or 8}
@@ -107,6 +110,7 @@ def load_model(
     net = build_model(cfg)              # registry dispatch on cfg.architectures
 
     weights = _load_safetensors(path)
+    weights = net.sanitize(weights)         # MoE: stack per-expert weights
     if cfg.tie_word_embeddings:
         weights.pop("lm_head.weight", None)
     weights = {k: v.astype(dtype) for k, v in weights.items()}

@@ -30,12 +30,19 @@ def _affine_bits_per_weight(bits: int, group_size: int, scale_bias_bits: int = 1
 
 
 def linear_param_count(cfg: ModelConfig) -> dict[str, int]:
-    """Per-token-relevant weight parameter counts by group (one decode step
-    reads every weight exactly once at batch=1)."""
-    h, i = cfg.hidden_size, cfg.intermediate_size
+    """Per-token-relevant weight parameter counts. At batch=1 a decode step reads
+    every dense weight once; for MoE it reads only the ACTIVE experts (top-k of
+    N) per token plus the router — that sparse-activation accounting is the whole
+    point of MoE for a bandwidth-bound engine."""
+    h = cfg.hidden_size
     hd, nq, nkv = cfg.head_dim, cfg.num_attention_heads, cfg.num_key_value_heads
     per_layer_attn = h * (nq * hd) + 2 * h * (nkv * hd) + (nq * hd) * h  # q,k,v,o
-    per_layer_mlp = 3 * h * i                                            # gate,up,down
+    if cfg.is_moe:
+        ie = cfg.expert_intermediate_size
+        router = h * cfg.num_experts
+        per_layer_mlp = router + cfg.num_experts_per_tok * 3 * h * ie    # active experts only
+    else:
+        per_layer_mlp = 3 * h * cfg.intermediate_size                   # gate,up,down
     body = cfg.num_hidden_layers * (per_layer_attn + per_layer_mlp)
     embed = cfg.vocab_size * h          # also the lm_head when tied
     return {"body": body, "embed_lm_head": embed}
