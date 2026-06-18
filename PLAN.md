@@ -4,10 +4,12 @@
 > in the spirit of `mini-sglang` but inverted for the constraints that actually
 > bind on a Mac: memory bandwidth and quantization, not GPU scheduling.
 >
-> **Status:** M0 + M1 validated on device (full suite 31/31). M0 parity incl. an
-> independent HuggingFace fp32 oracle; M1 = selective weight quantization,
-> perplexity harness, and a quantized KV cache. Next: M2 perf levers
-> (async_eval / mx.compile) gated on a baseline achieved-bandwidth measurement.
+> **Status:** M0–M2 validated on device, M3 declined on evidence, M4 written up.
+> M0 parity 7/7 (incl. independent HF fp32 oracle); M1 selective quantization +
+> quantized KV + perplexity harness; M2 roofline shows silica == `mlx-lm` at
+> ~70% of usable bandwidth, `async_eval` the big lever, `mx.compile` neutral, the
+> ~30% gap to the ceiling real & scale-independent. Write-up in
+> [`docs/REPORT.md`](docs/REPORT.md) + [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md).
 
 ---
 
@@ -196,23 +198,22 @@ host value) forces a sync and collapses the overlap — keep the token an
       roofline on a quiet machine to decide whether the headroom is a small-model
       artifact (→ skip M3, go to M4 write-up) or a real gap (→ reconsider M3).
 
-### M3 — Custom Metal kernels (gated on M2 profiling)
-- [ ] Profile to confirm the actual hot path before writing anything.
-- [ ] Quantitative gate: M3 only if baseline achieved-bandwidth < X% **and**
-      profiling shows a fusible >Y% traffic/launch cost.
-- [ ] First fusion candidate: dequant + GEMV + SwiGLU for the MLP block.
-- [ ] Second candidate: fused (possibly quantized) attention iff our KV layout
-      diverges from `mx.fast.scaled_dot_product_attention`.
-- [ ] Each kernel: correctness test vs pure-MLX fallback + standalone microbench.
+### M3 — Custom Metal kernels — GATED OUT by M2 evidence
+The M2 evidence closed this without writing kernels: the ~30% gap to the usable
+ceiling is **not launch overhead** (`mx.compile` neutral) and **not small-GEMV**
+(flat at 4B via cross-model scaling), so it is the intrinsic real-access-pattern
+efficiency that Apple's `mx.quantized_matmul` already defines (audit risk #1).
+Re-deriving those kernels would at best reproduce Apple's numbers. Decision:
+**declined.** (Re-open only if a future decode profile shows a fusible hot spot.)
 
-### M4 — Benchmarking & write-up
-- [ ] Full roofline report (§6) across model sizes / quant settings.
-- [ ] Comparison vs `mlx-lm` and `llama.cpp` (Metal) with a **fairness
-      checklist**: identical weights/quant recipe (bits/group), prompt set,
-      sampler, warmup, thermal steady state; report **bandwidth-%** as the
-      primary cross-engine number, not raw tok/s.
-- [ ] **Annotated reading guide / design narrative** (gated deliverable): the
-      pedagogy artifact that justifies the project independent of M3's outcome.
+### M4 — Benchmarking & write-up ✅
+- [x] Full roofline report (§6) across quant settings + cross-model scaling →
+      [`docs/REPORT.md`](docs/REPORT.md) (with `docs/results-m1.md`, `results-m2-baseline.md`).
+- [x] Comparison vs `mlx-lm` (within ~1.5% at fp16 & 4-bit, `bench/baseline.py`).
+      *Not done:* `llama.cpp` (Metal) cross-engine baseline — documented gap (REPORT §6).
+- [x] **Annotated reading guide / design narrative** (gated deliverable):
+      [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md) — the pedagogy artifact that
+      justifies the project independent of M3's outcome.
 
 ### Later (deferred, not abandoned)
 - CPU backend (Accelerate/AMX + NEON) behind the same op interface.

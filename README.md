@@ -2,15 +2,20 @@
 
 A transparent, single-stream LLM inference engine for Apple Silicon, built on
 MLX. Inverted from `mini-sglang`: on a Mac the bottleneck is **memory bandwidth
-and quantization**, not GPU scheduling. See [PLAN.md](PLAN.md) for the full
-design, methodology, and roadmap, and [docs/AUDIT.md](docs/AUDIT.md) for the
-audit that shaped this scaffold.
+and quantization**, not GPU scheduling.
 
-> **Status: pre-M0 scaffold — NOT yet validated on device.**
-> The code is written to be correct against the verified MLX/mlx-lm/Qwen3 API
-> surface, but no parity run has been done. The M0 acceptance gate
-> (`tests/test_parity.py`) is what proves the numerics. Do not trust outputs
-> until that passes.
+> **Status: M0–M2 validated on device; M3 gated out by evidence; M4 written up.**
+> Qwen3-0.6B decode is correctness-proven (parity gate 7/7, incl. an independent
+> HuggingFace fp32 oracle), quantization + quantized-KV land in M1, and the M2
+> roofline shows silica at parity with `mlx-lm` (~70% of usable bandwidth) with
+> `async_eval` as the big lever and `mx.compile` neutral. Custom Metal kernels
+> (M3) are **declined** — the ~30% gap to the ceiling is real, scale-independent,
+> and already defined by Apple's `mx.quantized_matmul`.
+
+**Docs:** [PLAN.md](PLAN.md) (design + roadmap) · [docs/REPORT.md](docs/REPORT.md)
+(the performance & correctness scoreboard) · [docs/READING_GUIDE.md](docs/READING_GUIDE.md)
+(annotated code tour + lessons learned) · [docs/AUDIT.md](docs/AUDIT.md) (pre-build
+audit) · [docs/results-m1.md](docs/results-m1.md) · [docs/results-m2-baseline.md](docs/results-m2-baseline.md).
 
 ## Layout
 
