@@ -15,9 +15,11 @@ venv/
 .DS_Store
 
 # Models / weights / benchmark artifacts (never commit checkpoints)
+# NOTE: root-anchored so it ignores a top-level checkpoint dir, NOT the
+# silica/models/ source package.
 *.safetensors
-models/
-checkpoints/
+/models/
+/checkpoints/
 *.gguf
 bench/results/
 *.csv
