@@ -62,13 +62,37 @@ remaining gap is **small-matrix GEMV inefficiency** (a 0.6B model's GEMVs are to
 small to saturate 370 GB/s), which compile cannot fix — it fuses launches, it
 doesn't make small GEMVs bandwidth-efficient.
 
-## Decision
+## Scaling: is the headroom a small-model artifact?
 
-Per the go/no-go rule, compile clearing the baseline would justify M3; it does
-not. The headroom is therefore likely a **small-model artifact**, not recoverable
-launch overhead. **Remaining decider (needs a quiet machine):** the larger-model
-roofline — measure silica vs mlx-lm % usable on Qwen3-4B/8B. If bigger GEMVs sit
-near the ceiling (likely), the headroom shrinks and M3 custom kernels are **not**
-worth it → pivot to pedagogy + the roofline write-up (M4). If a real gap persists
-at scale, reconsider M3 fusion (dequant+GEMV traffic reduction) — cautiously, per
-the audit's risk #1.
+Measured robustly by comparing 0.6B vs 4B decode achieved BW **back-to-back**
+(`bench/scaling.py`) so contention cancels in the ratio, anchored on 0.6B's
+known-clean % usable. (Earlier *absolute* 4B roofline runs all came back
+`UNRELIABLE` — the machine was never quiet; this ratio method sidesteps that.)
+
+| config | 4B/0.6B achieved-BW ratio | implied 4B % usable |
+|---|---|---|
+| fp16 (clean read) | **0.95×** | ~69% (vs 0.6B 72%) |
+| 4-bit (confounded) | 1.25× | ~84% — **inflated** (see caveat) |
+
+The fp16 ratio is the trustworthy one: both models are GPU/bandwidth-bound, so
+the dispatch confound is minimal. It says **bandwidth utilization is flat across
+scale (~70%)** — the ~30% gap to the usable ceiling is **real and NOT a
+small-model GEMV artifact** (my earlier hypothesis was wrong). The 4-bit 1.25×
+is inflated because a quantized 0.6B's very fast (dispatch-bound) steps are
+depressed more by external CPU load, deflating the denominator.
+
+## Decision (synthesis)
+
+The ~30% gap is **real and scale-independent** (fp16), and it is **not** the kind
+M3 typically captures: it is not launch overhead (`mx.compile` neutral) and not
+small-GEMV (flat at 4B). What's left is the intrinsic efficiency of real
+quantized-GEMV/attention access patterns vs an idealized sequential read — which
+Apple's already-tuned `mx.quantized_matmul` largely defines, and which a
+from-scratch silica kernel is unlikely to beat (audit risk #1).
+
+**Recommendation: lean M4 (write-up), not M3.** The dominant available lever
+(`async_eval`) is captured, `mx.compile` adds nothing, and the residual gap is
+structural and scale-independent. Before fully closing M3, the disciplined check
+the plan already gates on is a **decode profile** (where does the per-step time
+go — MLP GEMV / attention / norms / dispatch?) to confirm there is no fusible hot
+spot. That profile, not more roofline, is the M3-vs-M4 decider.
