@@ -92,6 +92,36 @@ def _selective_predicate(qcfg: QuantConfig):
     return predicate
 
 
+def _apply_checkpoint_quantization(net: nn.Module, weights: dict, ckpt_quant: dict) -> None:
+    """Convert modules to match an already-quantized checkpoint's packed tensors.
+
+    A module is quantized iff the checkpoint carries its ``<path>.scales`` (so this
+    one rule covers uniform 4/8-bit, mixed-precision recipes, AND the stacked MoE
+    experts). Per-module bits/group come from ``ckpt_quant[path]`` when present
+    (mlx mixed-precision configs store per-module dicts), else the top-level.
+    """
+    g = ckpt_quant.get("group_size", 64)
+    b = ckpt_quant.get("bits", 4)
+    mode = ckpt_quant.get("mode", "affine")
+
+    def class_predicate(path, module):
+        if not hasattr(module, "to_quantized"):
+            return False
+        spec = ckpt_quant.get(path)                 # per-module override (or False)
+        if spec is False:
+            return False
+        if f"{path}.scales" not in weights:         # not quantized in this checkpoint
+            return False
+        if isinstance(spec, dict):
+            return {"group_size": spec["group_size"], "bits": spec["bits"]}
+        return {"group_size": g, "bits": b}
+
+    kwargs = {"group_size": g, "bits": b, "class_predicate": class_predicate}
+    if mode != "affine":
+        kwargs["mode"] = mode
+    nn.quantize(net, **kwargs)
+
+
 def load_model(
     model: str | Path = "Qwen/Qwen3-0.6B",
     *,
@@ -100,12 +130,16 @@ def load_model(
 ) -> tuple[nn.Module, ModelConfig]:
     """Build and load a silica model (architecture chosen by the registry).
 
-    `quant=None` -> M0 fp baseline. Pass a QuantConfig for M1 selective quant.
-    `dtype` is the fp compute dtype (Qwen3 weights are stored bf16); record it
-    in any parity/bench run since it shifts tolerances and speed.
+    `quant=None` -> fp (or, for a pre-quantized checkpoint, its stored precision).
+    Pass a QuantConfig to quantize an fp checkpoint at load (M1 selective quant).
+    A checkpoint whose config carries a `quantization` field is loaded already
+    quantized (e.g. an mlx-community 4-bit model); `quant` is then ignored.
+    `dtype` is the fp compute dtype (record it in parity/bench runs).
     """
     path = resolve_model_path(model)
-    cfg = ModelConfig.from_json(path / "config.json")
+    with open(path / "config.json") as f:
+        config = json.load(f)
+    cfg = ModelConfig.from_dict(config)
 
     net = build_model(cfg)              # registry dispatch on cfg.architectures
 
@@ -113,21 +147,31 @@ def load_model(
     weights = net.sanitize(weights)         # MoE: stack per-expert weights
     if cfg.tie_word_embeddings:
         weights.pop("lm_head.weight", None)
-    weights = {k: v.astype(dtype) for k, v in weights.items()}
 
-    # Load fp weights FIRST, then quantize: nn.quantize quantizes each module's
-    # *current* weights in place. Quantizing before load would leave the modules
-    # expecting packed (weight/scales/biases) tensors the fp checkpoint lacks.
-    net.load_weights(list(weights.items()))
-    mx.eval(net.parameters())   # materialize (read-on-eval)
-
-    if quant is not None:
-        predicate = _selective_predicate(quant)
-        nn.quantize(net, group_size=quant.group_size, bits=quant.bits,
-                    class_predicate=predicate)
+    ckpt_quant = config.get("quantization")
+    if ckpt_quant is not None:
+        # Pre-quantized checkpoint: convert modules to match the packed tensors,
+        # then load AS-IS -- no astype, since the packed weights are uint32 and
+        # casting them to a float dtype would corrupt them.
+        _apply_checkpoint_quantization(net, weights, ckpt_quant)
+        net.load_weights(list(weights.items()))
         mx.eval(net.parameters())
-        if predicate.skipped:  # type: ignore[attr-defined]
-            print(f"[silica] quant skipped (group_size): {predicate.skipped}")
+        if quant is not None:
+            print("[silica] checkpoint is pre-quantized; ignoring quant=...")
+    else:
+        # fp checkpoint: load fp FIRST, then optionally quantize. nn.quantize
+        # quantizes each module's *current* weights in place; quantizing before
+        # load would leave modules expecting packed tensors the fp checkpoint lacks.
+        weights = {k: v.astype(dtype) for k, v in weights.items()}
+        net.load_weights(list(weights.items()))
+        mx.eval(net.parameters())
+        if quant is not None:
+            predicate = _selective_predicate(quant)
+            nn.quantize(net, group_size=quant.group_size, bits=quant.bits,
+                        class_predicate=predicate)
+            mx.eval(net.parameters())
+            if predicate.skipped:  # type: ignore[attr-defined]
+                print(f"[silica] quant skipped (group_size): {predicate.skipped}")
 
     net.eval()
     return net, cfg
