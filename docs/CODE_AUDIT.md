@@ -7,12 +7,11 @@ test coverage), each reading the actual source. Every behavioral finding was the
 (a misread "KV growth-size bug") and confirmed the rest. 67 raw findings; the
 consequential confirmed ones are below.
 
-> **Resolution (follow-up):** Tier 1 + Tier 2 (#1–#8) **FIXED** with tests
-> (`7e94607`, `ac92a73`); **Tier 3 test gaps + Tier 4 nits done** (`7ffe73c`:
-> multi-chunk KV growth, offset>0 mask, quantized-KV GQA, sampler filters,
-> error paths; dead code removed, `l`→`seq`, ruff clean). Suite 34 → **61**.
-> Still open: the partially-correct #9/#10 (sliding-window PPL, median
-> peak-bandwidth gate) — measurement-rigor refinements, not bugs.
+> **Resolution: every audit finding is addressed.** Tier 1 + Tier 2 (#1–#8)
+> **FIXED** with tests (`7e94607`, `ac92a73`); **Tier 3 test gaps + Tier 4 nits**
+> done (`7ffe73c`); **#9/#10 measurement-rigor refinements** done (`1c64c40`:
+> sliding-window PPL — silica fp16 PPL now matches llama.cpp Q8_0, validating
+> both; median-based peak-bandwidth gate). Test suite 34 → **65**, ruff clean.
 
 **Verdict.** No correctness bug on the *proven* happy path — the model numerics,
 GQA, RoPE/QK-norm order, attention scale, quantized-SDPA math, and the
