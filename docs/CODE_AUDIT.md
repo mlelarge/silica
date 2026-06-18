@@ -7,6 +7,10 @@ test coverage), each reading the actual source. Every behavioral finding was the
 (a misread "KV growth-size bug") and confirmed the rest. 67 raw findings; the
 consequential confirmed ones are below.
 
+> **Resolution (follow-up):** all Tier 1 + Tier 2 findings (#1–#8) are **FIXED**
+> with matching tests (commits `7e94607`, `ac92a73`; suite 49/49). The
+> partially-correct #9/#10 and the Tier 3 test gaps / Tier 4 nits remain open.
+
 **Verdict.** No correctness bug on the *proven* happy path — the model numerics,
 GQA, RoPE/QK-norm order, attention scale, quantized-SDPA math, and the
 load-before-quantize ordering all verified correct. The real issues are in the
@@ -150,9 +154,11 @@ hardcoded anchor constant.
 
 ## Recommended fix order
 
-1. **#1 sampler RNG** and **#2/#3 detokenizer** — real user-facing correctness;
-   small fixes; add the matching unit tests (Tier 3).
-2. **#5/#6 quant guards** + **#8 cross_engine parse** — cheap robustness.
-3. **#4 decode.py** and **#7 compiled recompile** — correctness of the tooling.
-4. Backfill the Tier 3 tests (especially multi-chunk KV growth + non-greedy sampler).
-5. Tier 4 cleanup opportunistically.
+1. ~~**#1 sampler RNG** and **#2/#3 detokenizer**~~ — **DONE** (`7e94607`): per-sampler
+   key, detokenizer hold-back + `finalize()`; tests `test_sample.py`, `test_detokenize.py`.
+2. ~~**#5/#6 quant guards** + **#8 cross_engine parse**~~ — **DONE** (`ac92a73`).
+3. ~~**#4 decode.py** and **#7 compiled recompile**~~ — **DONE** (`ac92a73`).
+4. **Open:** backfill Tier 3 tests (multi-chunk KV growth, offset>0 prefill,
+   quantized-KV under GQA, error paths) and the partially-correct #9/#10
+   (sliding-window PPL, median peak-bandwidth gate).
+5. **Open:** Tier 4 cleanup opportunistically.
